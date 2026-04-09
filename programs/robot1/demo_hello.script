@@ -1,0 +1,3 @@
+def demo_hello():
+  popup("robot1: demo start")
+end

@@ -1,0 +1,21 @@
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    enabled: true
+    assigned_program: programs/robot1/demo_hello.script
+
+  robot2:
+    host: 127.0.0.1
+    dashboard_port: 29992
+    script_port: 30022
+    enabled: false
+    assigned_program: null
+
+  robot3:
+    host: 127.0.0.1
+    dashboard_port: 29993
+    script_port: 30023
+    enabled: false
+    assigned_program: null

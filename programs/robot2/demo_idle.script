@@ -1,0 +1,3 @@
+def demo_idle():
+  textmsg("robot2 ready")
+end
