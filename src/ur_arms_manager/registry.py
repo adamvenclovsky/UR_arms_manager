@@ -44,6 +44,9 @@ class RobotRegistry:
                 host=item["host"],
                 dashboard_port=int(item["dashboard_port"]),
                 script_port=int(item["script_port"]),
+                ssh_port=int(item.get("ssh_port", 22)),
+                ssh_username=str(item.get("ssh_username", "root")),
+                ssh_password=str(item.get("ssh_password", "easybot")),
                 enabled=bool(item.get("enabled", True)),
                 assigned_program=item.get("assigned_program"),
             )
@@ -62,3 +65,6 @@ class RobotRegistry:
             raise RegistryError(f"Robot '{robot_name}' není v konfiguraci.")
         robots[robot_name]["assigned_program"] = program_path
         self.save(data)
+
+    def assign_remote_program(self, robot_name: str, robot_program_path: str) -> None:
+        self.assign_program(robot_name, robot_program_path)

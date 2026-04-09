@@ -3,6 +3,9 @@ robots:
     host: 127.0.0.1
     dashboard_port: 29991
     script_port: 30021
+    ssh_port: 22
+    ssh_username: root
+    ssh_password: easybot
     enabled: true
     assigned_program: programs/robot1/demo_hello.script
 
@@ -10,6 +13,9 @@ robots:
     host: 127.0.0.1
     dashboard_port: 29992
     script_port: 30022
+    ssh_port: 22
+    ssh_username: root
+    ssh_password: easybot
     enabled: false
     assigned_program: null
 
@@ -17,5 +23,8 @@ robots:
     host: 127.0.0.1
     dashboard_port: 29993
     script_port: 30023
+    ssh_port: 22
+    ssh_username: root
+    ssh_password: easybot
     enabled: false
     assigned_program: null

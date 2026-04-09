@@ -4,6 +4,10 @@ import socket
 from contextlib import closing
 
 
+class DashboardError(Exception):
+    pass
+
+
 class DashboardClient:
     def __init__(self, host: str, port: int, timeout: float = 2.0):
         self.host = host
@@ -11,11 +15,20 @@ class DashboardClient:
         self.timeout = timeout
 
     def send_command(self, command: str) -> str:
-        with closing(socket.create_connection((self.host, self.port), timeout=self.timeout)) as sock:
-            sock.settimeout(self.timeout)
-            _ = self._recv_line(sock)  # welcome line
-            sock.sendall((command.strip() + "\n").encode("ascii"))
-            return self._recv_line(sock)
+        try:
+            with closing(socket.create_connection((self.host, self.port), timeout=self.timeout)) as sock:
+                sock.settimeout(self.timeout)
+                _ = self._recv_line(sock)  # welcome line
+                sock.sendall((command.strip() + "\n").encode("ascii"))
+                return self._recv_line(sock)
+        except socket.timeout as exc:
+            raise DashboardError(
+                f"Timeout při komunikaci s dashboardem {self.host}:{self.port}"
+            ) from exc
+        except OSError as exc:
+            raise DashboardError(
+                f"Nelze se připojit k dashboardu {self.host}:{self.port}: {exc}"
+            ) from exc
 
     def get_robotmode(self) -> str:
         return self.send_command("robotmode")
@@ -31,6 +44,12 @@ class DashboardClient:
 
     def stop(self) -> str:
         return self.send_command("stop")
+
+    def play(self) -> str:
+        return self.send_command("play")
+
+    def load(self, program_path: str) -> str:
+        return self.send_command(f"load {program_path}")
 
     @staticmethod
     def _recv_line(sock: socket.socket) -> str:

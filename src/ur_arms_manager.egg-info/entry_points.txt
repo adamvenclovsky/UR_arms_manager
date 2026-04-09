@@ -1,0 +1,2 @@
+[console_scripts]
+uam = ur_arms_manager.cli:main

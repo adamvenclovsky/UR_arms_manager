@@ -11,6 +11,9 @@ class RobotConfig:
     host: str
     dashboard_port: int
     script_port: int
+    ssh_port: int = 22
+    ssh_username: str = "root"
+    ssh_password: str = "easybot"
     enabled: bool = True
     assigned_program: Optional[str] = None
 

@@ -23,3 +23,14 @@ def test_assign_program_updates_yaml(tmp_path: Path) -> None:
 
     robot = registry.get_robot("robot1")
     assert robot.assigned_program == "programs/robot1/another.script"
+
+
+def test_assign_remote_program_stores_exact_string(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(EXAMPLE, encoding="utf-8")
+
+    registry = RobotRegistry(config_path)
+    registry.assign_remote_program("robot1", "/programs/Cell A/demo_run.urp")
+
+    robot = registry.get_robot("robot1")
+    assert robot.assigned_program == "/programs/Cell A/demo_run.urp"

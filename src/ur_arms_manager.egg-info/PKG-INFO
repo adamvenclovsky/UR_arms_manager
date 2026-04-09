@@ -1,0 +1,73 @@
+Metadata-Version: 2.4
+Name: ur-arms-manager
+Version: 0.1.0
+Summary: Lightweight central manager for 2-3 Universal Robots
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: PyYAML>=6.0
+Requires-Dist: paramiko>=3.4
+
+# UR Arms Manager
+
+Lightweight CLI manager for 2 to 3 Universal Robots arms.
+
+Current implementation covers:
+- robot registry from YAML
+- basic dashboard status
+- dashboard runtime control (`load`, `play`, `stop`)
+- robot-side file access (`list`, `exists`, `pull`)
+
+## Install
+
+```bash
+pip install -e .
+```
+
+## Configuration
+
+Copy the example config and adjust hosts/ports:
+
+```bash
+cp config/robots.example.yaml config/robots.yaml
+```
+
+`assigned_program` is stored per robot in `config/robots.yaml`.
+
+Optional SSH/SFTP fields per robot (with defaults):
+- `ssh_port` (default `22`)
+- `ssh_username` (default `root`)
+- `ssh_password` (default `easybot`)
+
+Important for phase 2:
+- `uam robot load <robot_name>` sends `load <assigned_program>` to the Dashboard server.
+- The assigned program must already exist on the robot/URSim controller side.
+- This phase does not upload, sync, or deploy files.
+
+## CLI commands
+
+```bash
+uam robots list
+uam robot status <robot_name>
+uam robot assign <robot_name> <local_program_path>
+uam robot assign-remote <robot_name> <robot_program_path>
+uam robot load <robot_name>
+uam robot play <robot_name>
+uam robot stop <robot_name>
+uam robot files list <robot_name> [remote_dir]
+uam robot files exists <robot_name> <remote_path>
+uam robot files pull <robot_name> <remote_path> <local_destination>
+```
+
+## Assignment semantics in this phase
+
+- `assign` is local-workstation assignment. It validates local file existence and stores the resolved path string. This is kept for future phases.
+- `assign-remote` is phase-2 runtime assignment. It stores the robot/URSim controller path string exactly as provided, without local file validation.
+- `load` forwards stored `assigned_program` to dashboard as `load <assigned_program>`. The program must already exist on robot/URSim side.
+
+## Robot-side files (phase 3)
+
+- `uam robot files list <robot_name> [remote_dir]` lists remote entries. Default remote directory is `/programs`.
+- `uam robot files exists <robot_name> <remote_path>` prints `exists: yes` or `exists: no`.
+- `uam robot files pull <robot_name> <remote_path> <local_destination>` downloads a remote file.
+- If `local_destination` is an existing directory, the pulled file is saved there with the remote basename.
+- Direct robot-side access only. This phase does not implement upload, deploy, sync, local library, or parsing.

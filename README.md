@@ -1,72 +1,211 @@
-# UR_arms_manager
+# UR Arms Manager
 
-Lehký centrální manager pro 2–3 Universal Robots (URSim i fyzická ramena), postavený primárně v Pythonu.
+Lightweight CLI manager for 2 to 3 Universal Robots arms.
 
-## Cíl první verze
+Current implementation covers:
+- robot registry from YAML
+- basic dashboard status
+- dashboard runtime control (`load`, `play`, `stop`)
+- robot-side file access (`list`, `exists`, `pull`)
+- local program library (`list`, `add`, `inspect`, `remove`)
+- deploy from local library to robot (`deploy`) and assignment from library (`assign-library`)
+- import a single remote robot file into local library (`import-remote`)
+- read-only `.urp` metadata analysis during `library inspect`
+- lightweight compatibility advisory check (`robot compatibility`)
+- first-class `.script` workflow (`robot run-script`, `robot assign-script`)
+- limited safe `.urp` parameter editing (`library urp-params`, `library urp-set`)
 
-- evidovat roboty (`robot1`, `robot2`, `robot3`)
-- přiřazovat každému robotu jiný lokální URScript program
-- spouštět a zastavovat roboty nezávisle
-- číst základní stav robota
-- programy editovat lokálně ve VS Code
-- testovat vše nejdřív nad URSim
-
-## Proč je první verze bez ROS 2
-
-První verze je záměrně malá:
-- nižší nároky na notebook
-- kratší cesta k funkčnímu výsledku
-- jednodušší ladění socket komunikace s URSim
-- ROS 2 můžeme přidat až jako další vrstvu, ne jako základ
-
-## Navržený princip
-
-Každý robot má:
-- vlastní konfiguraci (`config/robots.yaml`)
-- vlastní přiřazený program (`assigned_program`)
-- vlastní socket připojení pro dashboard příkazy a posílání scriptu
-
-Centrální aplikace:
-- načte seznam robotů
-- dovolí program přiřadit
-- umí poslat script do konkrétního robota
-- umí robota zastavit
-- umí vrátit základní stav přes dashboard server
-
-## Rychlý start
+## Install
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
 pip install -e .
+```
+
+## Configuration
+
+Copy the example config and adjust hosts/ports:
+
+```bash
 cp config/robots.example.yaml config/robots.yaml
 ```
 
-Uprav `config/robots.yaml` podle portů tvých URSim instancí.
+`assigned_program` is stored per robot in `config/robots.yaml`.
 
-## Příklady použití
+Optional SSH/SFTP fields per robot (with defaults):
+- `ssh_port` (default `22`)
+- `ssh_username` (default `root`)
+- `ssh_password` (default `easybot`)
+
+Important for phase 2:
+- `uam robot load <robot_name>` sends `load <assigned_program>` to the Dashboard server.
+- The assigned program must already exist on the robot/URSim controller side.
+- This phase does not upload, sync, or deploy files.
+
+## CLI commands
 
 ```bash
 uam robots list
-uam robot status robot1
-uam robot assign robot1 programs/robot1/demo_hello.script
-uam robot run robot1
-uam robot stop robot1
+uam robot status <robot_name>
+uam robot assign <robot_name> <local_program_path>
+uam robot assign-remote <robot_name> <robot_program_path>
+uam robot assign-library <robot_name> <program_id>
+uam robot assign-script <robot_name> <program_id>
+uam robot run-script <robot_name> <program_id>
+uam robot load <robot_name>
+uam robot play <robot_name>
+uam robot stop <robot_name>
+uam robot deploy <robot_name> <program_id> [remote_dir]
+uam robot files list <robot_name> [remote_dir]
+uam robot files exists <robot_name> <remote_path>
+uam robot files pull <robot_name> <remote_path> <local_destination>
+uam robot compatibility <robot_name> <program_id>
+uam library list
+uam library add <local_file_path>
+uam library import-remote <robot_name> <remote_path>
+uam library inspect <program_id>
+uam library urp-params <program_id>
+uam library urp-set <program_id> <param_name> <value>
+uam library remove <program_id>
 ```
 
-## Doporučené mapování portů pro více URSim instancí
+## Assignment semantics in this phase
 
-Příklad pro 2 simulátory běžící na jednom notebooku:
-- robot1: dashboard `29991`, script `30021`
-- robot2: dashboard `29992`, script `30022`
-- robot3: dashboard `29993`, script `30023`
+- `assign` is local-workstation assignment. It validates local file existence and stores the resolved path string. This is kept for future phases.
+- `assign-remote` is phase-2 runtime assignment. It stores the robot/URSim controller path string exactly as provided, without local file validation.
+- `load` forwards stored `assigned_program` to dashboard as `load <assigned_program>`. The program must already exist on robot/URSim side.
 
-Repo na to myslí: porty jsou konfigurovatelné pro každý robot zvlášť.
+## Robot-side files (phase 3)
 
-## Další kroky
+- `uam robot files list <robot_name> [remote_dir]` lists remote entries. Default remote directory is `/programs`.
+- `uam robot files exists <robot_name> <remote_path>` prints `exists: yes` or `exists: no`.
+- `uam robot files pull <robot_name> <remote_path> <local_destination>` downloads a remote file.
+- If `local_destination` is an existing directory, the pulled file is saved there with the remote basename.
+- Direct robot-side access only. This phase does not implement upload, deploy, sync, local library, or parsing.
 
-1. Rozběhnout CLI nad jedním URSim.
-2. Ověřit `status`, `assign`, `run`, `stop`.
-3. Přidat polling stavu a jednoduchý REST API layer.
-4. Přidat RTDE monitoring.
-5. Teprve potom řešit ROS 2 integraci.
+## Local program library (phase 4)
+
+- Local storage root is `storage/programs/`.
+- Each item is stored under `storage/programs/<program_id>/`.
+- The copied file is saved in that directory.
+- Metadata is stored in `storage/programs/<program_id>/manifest.yaml`.
+
+Library commands:
+- `uam library list` shows stored library items.
+- `uam library add <local_file_path>` copies a local file into the library and creates metadata.
+- `uam library inspect <program_id>` prints metadata for one item.
+- `uam library remove <program_id>` removes item file+metadata.
+
+Notes:
+- This phase is local library only.
+- No deploy/upload/sync from library to robot in this phase.
+- No `.urp` parsing in this phase.
+
+## Deploy from library (phase 5)
+
+- `uam robot assign-library <robot_name> <program_id>`:
+  - reads a library item
+  - sets robot `assigned_program` to `/programs/<stored_filename>`
+  - does not deploy any file
+
+- `uam robot deploy <robot_name> <program_id> [remote_dir]`:
+  - uploads stored library file to robot via SSH/SFTP
+  - default `remote_dir` is `/programs`
+  - destination remote path is `<remote_dir>/<stored_filename>`
+  - deploy does not auto-assign robot program
+
+Notes:
+- `assign-library` and `deploy` are intentionally separate operations.
+- Upload behavior in this phase assumes remote destination directory already exists.
+- Existing files on remote destination are overwritten by upload.
+
+## Import remote file to library (phase 6)
+
+- `uam library import-remote <robot_name> <remote_path>`:
+  - pulls exactly one remote file from robot/URSim
+  - stores it as a normal library item
+  - enriches manifest with:
+    - `origin: robot_remote`
+    - `source_robot: <robot_name>`
+    - `source_remote_path: <remote_path>`
+
+Notes:
+- This phase imports exactly one file.
+- No automatic import of related `.installation` or `.variables` files.
+- No automatic assignment or deployment after import.
+- No `.urp` parsing.
+
+## `.urp` metadata analysis (phase 7)
+
+- `uam library inspect <program_id>` now performs best-effort read-only analysis for `.urp` items.
+- Non-`.urp` inspect behavior remains unchanged.
+- If `.urp` parsing fails, inspect still prints normal manifest fields and a non-crashing parse failure indicator.
+
+Analysis attempts to extract:
+- `program_name`
+- `installation_name`
+- `polyscope_version`
+- `robot_serial_number`
+- `urcap_names`
+- `digital_inputs`
+- `digital_outputs`
+- `contains_palletizing`
+- optional palletizing hints (`pallet_rows`, `pallet_columns`, `object_height_m`)
+
+## Compatibility advisory (phase 8)
+
+- `uam robot compatibility <robot_name> <program_id>` returns:
+  - `overall_status`: `ok` / `warning` / `blocked`
+  - `summary`
+  - `findings` list
+
+Implemented lightweight rules include:
+- missing stored library file -> `blocked`
+- `.script` -> usually `ok`
+- `.urp` with parse failure -> at least `warning`
+- `.urp` with `installation_name` -> at least `warning`
+- `.urp` with `urcap_names` -> at least `warning`
+- unknown extension -> `warning`
+- unreachable robot during check -> `warning` (non-crashing)
+
+Notes:
+- This is advisory output only.
+- It does not enforce global blocking for deploy/load.
+
+## `.script` first-class workflow (phase 9)
+
+- `uam robot run-script <robot_name> <program_id>`:
+  - requires a library item with extension `.script`
+  - reads script content from local library storage
+  - sends script text directly over the robot script socket
+  - does not use dashboard `load`/`play`
+
+- `uam robot assign-script <robot_name> <program_id>`:
+  - verifies the library item is a `.script`
+  - stores `assigned_program: library://<program_id>` in robot config
+  - does not deploy and does not execute
+
+Operational behavior:
+- non-`.script` program IDs are rejected with a clean library error
+- missing stored library files are rejected with a clean library error
+- script connection/send failures are reported as readable runtime errors
+
+## Limited `.urp` parameter editing (phase 10)
+
+- `uam library urp-params <program_id>`:
+  - works only for `.urp` library items
+  - lists detected editable parameters from a strict whitelist
+  - prints a clean message if no editable parameters are detected
+
+- `uam library urp-set <program_id> <param_name> <value>`:
+  - works only for `.urp` library items
+  - updates only detected parameters from this whitelist:
+    - `installation_name`
+    - `pallet_rows`
+    - `pallet_columns`
+    - `object_height_m`
+  - performs conservative in-place update with atomic replace
+
+Safety notes:
+- no generic XML editor is provided
+- unsupported or non-detected parameters are rejected with a clean error
+- failed updates do not overwrite/corrupt the stored `.urp` file
