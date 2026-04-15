@@ -77,6 +77,28 @@ def test_play_and_stop_wrap_dashboard_failures(monkeypatch) -> None:
         assert "Stop selhal" in str(exc)
 
 
+def test_power_commands_call_dashboard(monkeypatch) -> None:
+    class FakeDashboardClient:
+        def __init__(self, _host: str, _port: int):
+            pass
+
+        def power_on(self) -> str:
+            return "Powering on"
+
+        def brake_release(self) -> str:
+            return "Brake releasing"
+
+        def power_off(self) -> str:
+            return "Powering off"
+
+    monkeypatch.setattr(robot_manager, "DashboardClient", FakeDashboardClient)
+    manager = robot_manager.RobotManager(_robot())
+
+    assert manager.power_on() == "Powering on"
+    assert manager.brake_release() == "Brake releasing"
+    assert manager.power_off() == "Powering off"
+
+
 def test_status_unreachable_returns_clean_result(monkeypatch) -> None:
     class FakeDashboardClient:
         def __init__(self, _host: str, _port: int):

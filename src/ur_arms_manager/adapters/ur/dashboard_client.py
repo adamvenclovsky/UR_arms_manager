@@ -51,6 +51,15 @@ class DashboardClient:
     def load(self, program_path: str) -> str:
         return self.send_command(f"load {program_path}")
 
+    def power_on(self) -> str:
+        return self.send_command("power on")
+
+    def brake_release(self) -> str:
+        return self.send_command("brake release")
+
+    def power_off(self) -> str:
+        return self.send_command("power off")
+
     @staticmethod
     def _recv_line(sock: socket.socket) -> str:
         data = b""

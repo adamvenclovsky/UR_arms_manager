@@ -6,6 +6,7 @@ Current implementation covers:
 - robot registry from YAML
 - basic dashboard status
 - dashboard runtime control (`load`, `play`, `stop`)
+- dashboard power control (`power-on`, `brake-release`, `power-off`)
 - robot-side file access (`list`, `exists`, `pull`)
 - local program library (`list`, `add`, `inspect`, `remove`)
 - deploy from local library to robot (`deploy`) and assignment from library (`assign-library`)
@@ -54,6 +55,9 @@ uam robot run-script <robot_name> <program_id>
 uam robot load <robot_name>
 uam robot play <robot_name>
 uam robot stop <robot_name>
+uam robot power-on <robot_name>
+uam robot brake-release <robot_name>
+uam robot power-off <robot_name>
 uam robot deploy <robot_name> <program_id> [remote_dir]
 uam robot files list <robot_name> [remote_dir]
 uam robot files exists <robot_name> <remote_path>
@@ -188,6 +192,28 @@ Operational behavior:
 - non-`.script` program IDs are rejected with a clean library error
 - missing stored library files are rejected with a clean library error
 - script connection/send failures are reported as readable runtime errors
+
+## Robot power control (post-phase)
+
+- `uam robot power-on <robot_name>` sends dashboard command `power on`.
+- `uam robot brake-release <robot_name>` sends dashboard command `brake release`.
+- `uam robot power-off <robot_name>` sends dashboard command `power off`.
+
+Notes:
+- Commands use the same dashboard connection as `status/load/play/stop`.
+- Network/timeouts are surfaced as clean CLI errors without raw tracebacks in normal usage.
+
+## Manual validation notes (URSim Docker)
+
+- Manual testing in this project was done against a custom URSim Docker image with `openssh-server` enabled.
+- In that setup, program files were visible over SSH/SFTP under paths like:
+  - `/ursim/programs.UR5/programs/test1.urp`
+- Dashboard `load` was observed to require controller-visible program paths/names, which may differ from raw SSH/SFTP filesystem paths in URSim Docker environments.
+- Confirmed during manual validation:
+  - dashboard status works
+  - `power-on` / `brake-release` / `power-off` work
+  - SSH/SFTP list/exists/pull work
+  - `library import-remote` works
 
 ## Limited `.urp` parameter editing (phase 10)
 

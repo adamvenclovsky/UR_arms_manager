@@ -24,6 +24,9 @@ Použití:
   uam robot load <robot_name>
   uam robot play <robot_name>
   uam robot stop <robot_name>
+  uam robot power-on <robot_name>
+  uam robot brake-release <robot_name>
+  uam robot power-off <robot_name>
   uam robot deploy <robot_name> <program_id> [remote_dir]
   uam robot files list <robot_name> [remote_dir]
   uam robot files exists <robot_name> <remote_path>
@@ -141,6 +144,11 @@ def _main(args: list[str]) -> int:
             robot = registry.get_robot(robot_name)
             response = RobotManager(robot).load_assigned_program()
             print(f"load_response: {response}")
+            if "file not found" in response.lower():
+                print(
+                    "note: Dashboard load používá controller-visible program cesty/jména, "
+                    "které se v URSim mohou lišit od SSH/SFTP filesystem cest."
+                )
             return 0
 
         case ["robot", "play", robot_name]:
@@ -153,6 +161,24 @@ def _main(args: list[str]) -> int:
             robot = registry.get_robot(robot_name)
             response = RobotManager(robot).stop_program()
             print(f"stop_response: {response}")
+            return 0
+
+        case ["robot", "power-on", robot_name]:
+            robot = registry.get_robot(robot_name)
+            response = RobotManager(robot).power_on()
+            print(f"power_on_response: {response}")
+            return 0
+
+        case ["robot", "brake-release", robot_name]:
+            robot = registry.get_robot(robot_name)
+            response = RobotManager(robot).brake_release()
+            print(f"brake_release_response: {response}")
+            return 0
+
+        case ["robot", "power-off", robot_name]:
+            robot = registry.get_robot(robot_name)
+            response = RobotManager(robot).power_off()
+            print(f"power_off_response: {response}")
             return 0
 
         case ["robot", "deploy", robot_name, program_id]:

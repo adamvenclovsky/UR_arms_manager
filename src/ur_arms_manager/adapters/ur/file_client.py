@@ -77,6 +77,8 @@ class FileClient:
 
     def pull_file(self, remote_path: str, local_destination: Path) -> Path:
         destination = Path(local_destination)
+        if destination.exists() and destination.is_dir():
+            destination = destination / Path(remote_path).name
         destination.parent.mkdir(parents=True, exist_ok=True)
 
         ssh, sftp = self._open_sftp()

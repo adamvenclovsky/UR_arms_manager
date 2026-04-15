@@ -117,6 +117,30 @@ def test_robot_load_prints_dashboard_response(tmp_path: Path, monkeypatch, capsy
     assert "load_response: Loading program: /programs/demo_controller.urp" in output
 
 
+def test_robot_load_file_not_found_prints_dashboard_path_note(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(EXAMPLE_CONFIG_WITH_REMOTE, encoding="utf-8")
+    monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+
+    class FakeRobotManager:
+        def __init__(self, _robot):
+            pass
+
+        def load_assigned_program(self) -> str:
+            return "File not found: test1.urp"
+
+    monkeypatch.setattr(cli, "RobotManager", FakeRobotManager)
+
+    exit_code = cli._main(["robot", "load", "robot1"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "load_response: File not found: test1.urp" in output
+    assert "Dashboard load používá controller-visible program cesty/jména" in output
+
+
 def test_robot_play_prints_dashboard_response(tmp_path: Path, monkeypatch, capsys) -> None:
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")
@@ -157,6 +181,97 @@ def test_robot_stop_prints_dashboard_response(tmp_path: Path, monkeypatch, capsy
 
     assert exit_code == 0
     assert "stop_response: Stopped" in output
+
+
+def test_robot_power_on_prints_dashboard_response(tmp_path: Path, monkeypatch, capsys) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")
+    monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+
+    class FakeRobotManager:
+        def __init__(self, _robot):
+            pass
+
+        def power_on(self) -> str:
+            return "Powering on"
+
+    monkeypatch.setattr(cli, "RobotManager", FakeRobotManager)
+
+    exit_code = cli._main(["robot", "power-on", "robot1"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "power_on_response: Powering on" in output
+
+
+def test_robot_brake_release_prints_dashboard_response(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")
+    monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+
+    class FakeRobotManager:
+        def __init__(self, _robot):
+            pass
+
+        def brake_release(self) -> str:
+            return "Brake releasing"
+
+    monkeypatch.setattr(cli, "RobotManager", FakeRobotManager)
+
+    exit_code = cli._main(["robot", "brake-release", "robot1"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "brake_release_response: Brake releasing" in output
+
+
+def test_robot_power_off_prints_dashboard_response(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")
+    monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+
+    class FakeRobotManager:
+        def __init__(self, _robot):
+            pass
+
+        def power_off(self) -> str:
+            return "Powering off"
+
+    monkeypatch.setattr(cli, "RobotManager", FakeRobotManager)
+
+    exit_code = cli._main(["robot", "power-off", "robot1"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "power_off_response: Powering off" in output
+
+
+def test_robot_power_on_failure_returns_clean_error(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")
+    monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+
+    class FakeRobotManager:
+        def __init__(self, _robot):
+            pass
+
+        def power_on(self) -> str:
+            raise RuntimeError("Power-on selhal pro robot 'robot1': connection refused")
+
+    monkeypatch.setattr(cli, "RobotManager", FakeRobotManager)
+    monkeypatch.setattr(cli.sys, "argv", ["uam", "robot", "power-on", "robot1"])
+
+    exit_code = cli.main()
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "[error] Power-on selhal pro robot 'robot1': connection refused" in output
 
 
 def test_robot_load_without_assigned_program_returns_clean_error(

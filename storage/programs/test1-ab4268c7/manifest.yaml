@@ -1,0 +1,11 @@
+program_id: test1-ab4268c7
+original_filename: test1.urp
+stored_filename: test1.urp
+stored_path: /home/apokulec/School projects/UR arms manager/UR_arms_manager/storage/programs/test1-ab4268c7/test1.urp
+extension: urp
+created_at: '2026-04-15T09:09:21.977651+00:00'
+source_path: /tmp/uam-import-awywwcj9/test1.urp
+size_bytes: 808
+origin: robot_remote
+source_robot: robot1
+source_remote_path: /ursim/programs.UR5/programs/test1.urp

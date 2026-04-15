@@ -69,6 +69,30 @@ class RobotManager:
         except Exception as exc:
             raise RuntimeError(f"Play selhal pro robot '{self.robot.name}': {exc}") from exc
 
+    def power_on(self) -> str:
+        try:
+            return self.dashboard.power_on()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Power-on selhal pro robot '{self.robot.name}': {exc}"
+            ) from exc
+
+    def brake_release(self) -> str:
+        try:
+            return self.dashboard.brake_release()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Brake-release selhal pro robot '{self.robot.name}': {exc}"
+            ) from exc
+
+    def power_off(self) -> str:
+        try:
+            return self.dashboard.power_off()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Power-off selhal pro robot '{self.robot.name}': {exc}"
+            ) from exc
+
     def list_remote_files(self, remote_dir: str = "/programs") -> list[str]:
         try:
             return self._get_file_client().list_dir(remote_dir)
