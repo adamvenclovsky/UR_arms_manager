@@ -1,0 +1,537 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set script_items = library_items | selectattr("extension", "equalto", "script") | list %}
+  {% set runnable_script_items = script_items | selectattr("has_stored_file") | list %}
+  {% set deployable_items = library_items | selectattr("has_stored_file") | list %}
+  <section class="page-intro">
+    <p class="eyebrow">Phase H URP Detail And Safe Params</p>
+    <h1>Managed program library.</h1>
+    <p class="lead">
+      Browse stored library items, inspect metadata, upload local files, import remote robot files, assign items to robots, deploy files to robots, run `.script` items, inspect `.urp` compatibility, and update safe `.urp` params.
+    </p>
+  </section>
+
+  {% if flash_message %}
+    <section class="message-panel {% if flash_kind == 'error' %}message-panel-error{% else %}message-panel-success{% endif %}">
+      <p class="card-label">Library Result</p>
+      <h2>{{ flash_message }}</h2>
+    </section>
+  {% endif %}
+
+  <section class="library-ingest-grid">
+    <section class="library-ingest-panel">
+      <div class="panel-heading">
+        <p class="card-label">Upload Local File</p>
+        <h2>Add a file from this workstation</h2>
+      </div>
+      <form method="post" action="{{ url_for('upload_library_item') }}" enctype="multipart/form-data" class="stack-form">
+        <label class="form-field">
+          <span>Select file</span>
+          <input type="file" name="upload_file" required />
+        </label>
+        <button type="submit" class="action-button">Upload to Library</button>
+      </form>
+    </section>
+
+    <section class="library-ingest-panel">
+      <div class="panel-heading">
+        <p class="card-label">Import Remote File</p>
+        <h2>Pull one file from a robot</h2>
+      </div>
+      {% if robot_config_error %}
+        <div class="item-warning">Robot config unavailable: {{ robot_config_error }}</div>
+      {% else %}
+        <form method="post" action="{{ url_for('import_remote_library_item') }}" class="stack-form">
+          <label class="form-field">
+            <span>Robot</span>
+            <select name="robot_name" required {% if not robot_options %}disabled{% endif %}>
+              <option value="">Select robot</option>
+              {% for robot in robot_options %}
+                <option value="{{ robot.name }}">{{ robot.name }} ({{ robot.host }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Remote path</span>
+            <input type="text" name="remote_path" placeholder="/programs/demo.urp" required {% if not robot_options %}disabled{% endif %} />
+          </label>
+          <button type="submit" class="action-button" {% if not robot_options %}disabled{% endif %}>Import to Library</button>
+        </form>
+      {% endif %}
+    </section>
+  </section>
+
+  <section class="library-ingest-grid">
+    <section class="library-ingest-panel">
+      <div class="panel-heading">
+        <p class="card-label">Assign Remote Path</p>
+        <h2>Store a controller-visible program path</h2>
+      </div>
+      {% if robot_config_error %}
+        <div class="item-warning">Robot config unavailable: {{ robot_config_error }}</div>
+      {% else %}
+        <form method="post" action="{{ url_for('assign_remote_library_item') }}" class="stack-form">
+          <label class="form-field">
+            <span>Robot</span>
+            <select name="robot_name" required {% if not robot_options %}disabled{% endif %}>
+              <option value="">Select robot</option>
+              {% for robot in robot_options %}
+                <option value="{{ robot.name }}">{{ robot.name }} ({{ robot.host }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Controller-visible path</span>
+            <input type="text" name="robot_program_path" placeholder="programs/demo.urp" required {% if not robot_options %}disabled{% endif %} />
+          </label>
+          <button type="submit" class="action-button" {% if not robot_options %}disabled{% endif %}>Assign Remote</button>
+        </form>
+      {% endif %}
+    </section>
+
+    <section class="library-ingest-panel">
+      <div class="panel-heading">
+        <p class="card-label">Assign, Deploy, Or Run</p>
+        <h2>Connect a stored item to a robot</h2>
+      </div>
+      {% if robot_config_error %}
+        <div class="item-warning">Robot config unavailable: {{ robot_config_error }}</div>
+      {% else %}
+        <form method="post" action="{{ url_for('assign_library_item') }}" class="stack-form">
+          <label class="form-field">
+            <span>Robot</span>
+            <select name="robot_name" required {% if not robot_options or not library_items %}disabled{% endif %}>
+              <option value="">Select robot</option>
+              {% for robot in robot_options %}
+                <option value="{{ robot.name }}">{{ robot.name }} ({{ robot.host }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Library item</span>
+            <select name="program_id" required {% if not library_items %}disabled{% endif %}>
+              <option value="">Select library item</option>
+              {% for item in library_items %}
+                <option value="{{ item.program_id }}" {% if selected_item and selected_item.program_id == item.program_id %}selected{% endif %}>
+                  {{ item.original_filename }} [{{ item.program_id }}]
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+          <button type="submit" class="action-button" {% if not robot_options or not library_items %}disabled{% endif %}>Assign Library</button>
+        </form>
+
+        <form method="post" action="{{ url_for('assign_script_item') }}" class="stack-form assignment-subform">
+          <label class="form-field">
+            <span>Robot</span>
+            <select name="robot_name" required {% if not robot_options or not library_items %}disabled{% endif %}>
+              <option value="">Select robot</option>
+              {% for robot in robot_options %}
+                <option value="{{ robot.name }}">{{ robot.name }} ({{ robot.host }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Script item only</span>
+            <select name="program_id" required {% if not script_items %}disabled{% endif %}>
+              <option value="">Select script item</option>
+              {% for item in script_items %}
+                <option value="{{ item.program_id }}" {% if selected_item and selected_item.program_id == item.program_id %}selected{% endif %}>
+                  {{ item.original_filename }} [{{ item.type_label }}]
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+          <button type="submit" class="action-button" {% if not robot_options or not script_items %}disabled{% endif %}>Assign Script</button>
+          {% if not script_items %}
+            <p class="action-note">No `.script` items are currently available in the library.</p>
+          {% elif selected_item and selected_item.extension != "script" %}
+            <p class="action-note">The currently selected item is not a `.script`. Choose a script item for this workflow.</p>
+          {% endif %}
+        </form>
+
+        <form method="post" action="{{ url_for('run_script_library_item') }}" class="stack-form assignment-subform script-quick-form">
+          <label class="form-field">
+            <span>Robot</span>
+            <select name="robot_name" required {% if not robot_options or not library_items %}disabled{% endif %}>
+              <option value="">Select robot</option>
+              {% for robot in robot_options %}
+                <option value="{{ robot.name }}">{{ robot.name }} ({{ robot.host }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Script item only</span>
+            <select name="program_id" required {% if not runnable_script_items %}disabled{% endif %}>
+              <option value="">Select script item</option>
+              {% for item in runnable_script_items %}
+                <option value="{{ item.program_id }}" {% if selected_item and selected_item.program_id == item.program_id %}selected{% endif %}>
+                  {{ item.original_filename }} [{{ item.type_label }}]
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+          <button type="submit" class="action-button action-button-script" {% if not robot_options or not runnable_script_items %}disabled{% endif %}>Run Script</button>
+          {% if not runnable_script_items %}
+            <p class="action-note">No runnable `.script` items are currently available.</p>
+          {% elif selected_item and selected_item.extension == "script" and not selected_item.has_stored_file %}
+            <p class="action-note action-note-warning">The selected script cannot be run because its stored file is missing.</p>
+          {% endif %}
+        </form>
+
+        <form method="post" action="{{ url_for('deploy_library_item') }}" class="stack-form assignment-subform">
+          <label class="form-field">
+            <span>Robot</span>
+            <select name="robot_name" required {% if not robot_options or not library_items %}disabled{% endif %}>
+              <option value="">Select robot</option>
+              {% for robot in robot_options %}
+                <option value="{{ robot.name }}">{{ robot.name }} ({{ robot.host }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Library item</span>
+            <select name="program_id" required {% if not deployable_items %}disabled{% endif %}>
+              <option value="">Select library item</option>
+              {% for item in deployable_items %}
+                <option value="{{ item.program_id }}" {% if selected_item and selected_item.program_id == item.program_id %}selected{% endif %}>
+                  {{ item.original_filename }} [{{ item.program_id }}]
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Remote dir</span>
+            <input type="text" name="remote_dir" value="/programs" {% if not deployable_items %}disabled{% endif %} />
+          </label>
+          <button type="submit" class="action-button" {% if not robot_options or not deployable_items %}disabled{% endif %}>Deploy</button>
+          {% if selected_item and not selected_item.has_stored_file %}
+            <p class="action-note action-note-warning">Deploy needs a stored file. Re-upload or import the selected item first.</p>
+          {% elif not deployable_items %}
+            <p class="action-note">No deployable library files are currently available.</p>
+          {% endif %}
+        </form>
+      {% endif %}
+    </section>
+  </section>
+
+  {% if library_items %}
+    <section class="library-layout">
+      <section class="library-list-panel">
+        <div class="panel-heading">
+          <p class="card-label">Library Items</p>
+          <h2>{{ library_items|length }} item{% if library_items|length != 1 %}s{% endif %}</h2>
+        </div>
+
+        <div class="library-list">
+          {% for item in library_items %}
+            <a
+              class="library-row {% if selected_item and selected_item.program_id == item.program_id %}library-row-active{% endif %} {% if item.extension == 'script' %}library-row-script{% endif %}"
+              href="{{ url_for('library') }}?selected={{ item.program_id }}"
+            >
+              <div class="library-row-main">
+                <strong>{{ item.original_filename }}</strong>
+                <span class="type-badge {{ item.type_class }}">{{ item.type_label }}</span>
+              </div>
+              <div class="library-row-meta">
+                <span>{{ item.program_id }}</span>
+                <span>{{ item.origin }}</span>
+              </div>
+              {% if item.extension == 'script' %}
+                <div class="script-hint">Direct script workflow available</div>
+              {% endif %}
+              {% if not item.has_stored_file and item.stored_file_issue %}
+                <div class="item-warning">Stored file issue: {{ item.stored_file_issue }}</div>
+              {% endif %}
+              {% if item.error %}
+                <div class="item-warning">Metadata issue: {{ item.error }}</div>
+              {% endif %}
+            </a>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="library-detail-panel">
+        {% if selected_item %}
+          <div class="panel-heading">
+            <p class="card-label">Item Detail</p>
+            <h2>{{ selected_item.original_filename }}</h2>
+          </div>
+
+          <dl class="detail-list library-detail-list">
+            <div>
+              <dt>Program ID</dt>
+              <dd>{{ selected_item.program_id }}</dd>
+            </div>
+            <div>
+              <dt>Type</dt>
+              <dd><span class="type-badge {{ selected_item.type_class }}">{{ selected_item.type_label }}</span></dd>
+            </div>
+            {% if selected_item.extension == "script" %}
+              <div>
+                <dt>Workflow</dt>
+                <dd>Direct `.script` execution available</dd>
+              </div>
+            {% endif %}
+            <div>
+              <dt>Origin</dt>
+              <dd>{{ selected_item.origin }}</dd>
+            </div>
+            <div>
+              <dt>Stored Location</dt>
+              <dd>{{ selected_item.stored_path_short }}</dd>
+            </div>
+            <div class="detail-list-full">
+              <dt>Full Stored Path</dt>
+              <dd class="program-value">{{ selected_item.stored_path or "Unavailable" }}</dd>
+            </div>
+            <div class="detail-list-full">
+              <dt>Stored File Status</dt>
+              <dd>
+                {% if selected_item.has_stored_file %}
+                  Available in library storage
+                {% else %}
+                  Missing from library storage
+                {% endif %}
+              </dd>
+            </div>
+            {% if selected_item.source_robot %}
+              <div>
+                <dt>Source Robot</dt>
+                <dd>{{ selected_item.source_robot }}</dd>
+              </div>
+            {% endif %}
+            {% if selected_item.source_remote_path %}
+              <div class="detail-list-full">
+                <dt>Source Remote Path</dt>
+                <dd class="program-value">{{ selected_item.source_remote_path }}</dd>
+              </div>
+            {% endif %}
+            {% if selected_item.created_at %}
+              <div>
+                <dt>Created At</dt>
+                <dd>{{ selected_item.created_at }}</dd>
+              </div>
+            {% endif %}
+            {% if selected_item.size_bytes %}
+              <div>
+                <dt>Size</dt>
+                <dd>{{ selected_item.size_bytes }} bytes</dd>
+              </div>
+            {% endif %}
+            {% if selected_item.error %}
+              <div class="detail-list-full">
+                <dt>Metadata Warning</dt>
+                <dd class="item-warning">{{ selected_item.error }}</dd>
+              </div>
+            {% endif %}
+          </dl>
+
+          {% if not selected_item.has_stored_file and selected_item.stored_file_issue %}
+            <div class="item-warning library-item-warning">
+              Stored file problem: {{ selected_item.stored_file_issue }}
+            </div>
+          {% endif %}
+
+          <form method="post" action="{{ url_for('remove_library_item', program_id=selected_item.program_id) }}" class="library-remove-form">
+            <button type="submit" class="action-button action-button-danger">Remove Item</button>
+          </form>
+
+          {% if selected_item.extension == "script" and not robot_config_error and robot_options %}
+            <form method="post" action="{{ url_for('run_script_library_item') }}" class="library-remove-form script-quick-run">
+              <input type="hidden" name="program_id" value="{{ selected_item.program_id }}" />
+              <label class="form-field">
+                <span>Quick run on robot</span>
+                <select name="robot_name" required {% if not selected_item.has_stored_file %}disabled{% endif %}>
+                  <option value="">Select robot</option>
+                  {% for robot in robot_options %}
+                    <option value="{{ robot.name }}">{{ robot.name }} ({{ robot.host }})</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <button type="submit" class="action-button action-button-script" {% if not selected_item.has_stored_file %}disabled title="{{ selected_item.stored_file_issue }}"{% endif %}>Run Selected Script</button>
+              {% if not selected_item.has_stored_file %}
+                <p class="action-note action-note-warning">{{ selected_item.stored_file_issue }}</p>
+              {% endif %}
+            </form>
+          {% endif %}
+
+          {% if selected_item.extension == "urp" %}
+            <section class="urp-detail-panel">
+              <div class="panel-heading">
+                <p class="card-label">URP Detail</p>
+                <h3>Parsed metadata and safe operator checks</h3>
+              </div>
+
+              {% set urp_analysis = selected_item.urp_analysis or {} %}
+              {% if urp_analysis %}
+                {% if urp_analysis.parse_success %}
+                  <dl class="detail-list library-detail-list">
+                    {% if urp_analysis.program_name %}
+                      <div>
+                        <dt>Program Name</dt>
+                        <dd>{{ urp_analysis.program_name }}</dd>
+                      </div>
+                    {% endif %}
+                    {% if urp_analysis.installation_name %}
+                      <div>
+                        <dt>Installation</dt>
+                        <dd>{{ urp_analysis.installation_name }}</dd>
+                      </div>
+                    {% endif %}
+                    {% if urp_analysis.polyscope_version %}
+                      <div>
+                        <dt>PolyScope Version</dt>
+                        <dd>{{ urp_analysis.polyscope_version }}</dd>
+                      </div>
+                    {% endif %}
+                    {% if urp_analysis.robot_serial_number %}
+                      <div>
+                        <dt>Robot Serial</dt>
+                        <dd>{{ urp_analysis.robot_serial_number }}</dd>
+                      </div>
+                    {% endif %}
+                    {% if urp_analysis.urcap_names %}
+                      <div class="detail-list-full">
+                        <dt>URCaps</dt>
+                        <dd>{{ urp_analysis.urcap_names|join(", ") }}</dd>
+                      </div>
+                    {% endif %}
+                    {% if urp_analysis.contains_palletizing is not none %}
+                      <div>
+                        <dt>Palletizing</dt>
+                        <dd>{% if urp_analysis.contains_palletizing %}Detected{% else %}Not detected{% endif %}</dd>
+                      </div>
+                    {% endif %}
+                    {% if urp_analysis.pallet_rows %}
+                      <div>
+                        <dt>Pallet Rows</dt>
+                        <dd>{{ urp_analysis.pallet_rows }}</dd>
+                      </div>
+                    {% endif %}
+                    {% if urp_analysis.pallet_columns %}
+                      <div>
+                        <dt>Pallet Columns</dt>
+                        <dd>{{ urp_analysis.pallet_columns }}</dd>
+                      </div>
+                    {% endif %}
+                    {% if urp_analysis.object_height_m %}
+                      <div>
+                        <dt>Object Height</dt>
+                        <dd>{{ urp_analysis.object_height_m }} m</dd>
+                      </div>
+                    {% endif %}
+                  </dl>
+                {% else %}
+                  <div class="item-warning">URP parse failed: {{ urp_analysis.parse_error or "Unknown parse error" }}</div>
+                {% endif %}
+              {% else %}
+                <div class="item-warning">No URP analysis data is available for this item.</div>
+              {% endif %}
+
+              <div class="urp-detail-grid">
+                <section class="library-ingest-panel urp-subpanel">
+                  <div class="panel-heading">
+                    <p class="card-label">Compatibility</p>
+                    <h3>Check against one robot</h3>
+                  </div>
+                  {% if robot_config_error %}
+                    <div class="item-warning">Robot config unavailable: {{ robot_config_error }}</div>
+                  {% else %}
+                    <form method="get" action="{{ url_for('library') }}" class="stack-form">
+                      <input type="hidden" name="selected" value="{{ selected_item.program_id }}" />
+                      <label class="form-field">
+                        <span>Robot</span>
+                        <select name="compat_robot" required {% if not robot_options %}disabled{% endif %}>
+                          <option value="">Select robot</option>
+                          {% for robot in robot_options %}
+                            <option value="{{ robot.name }}" {% if compatibility_robot_name == robot.name %}selected{% endif %}>{{ robot.name }} ({{ robot.host }})</option>
+                          {% endfor %}
+                        </select>
+                      </label>
+                      <button type="submit" class="action-button" {% if not robot_options %}disabled{% endif %}>Run Compatibility Check</button>
+                    </form>
+                  {% endif %}
+
+                  {% if compatibility_error %}
+                    <div class="item-warning compatibility-panel">
+                      Compatibility check failed: {{ compatibility_error }}
+                    </div>
+                  {% elif compatibility_result %}
+                    <div class="compatibility-panel compatibility-{{ compatibility_result.overall_status }}">
+                      <div class="compatibility-header">
+                        <span class="type-badge compatibility-badge compatibility-{{ compatibility_result.overall_status }}">{{ compatibility_result.overall_status }}</span>
+                        <strong>{{ compatibility_result.summary }}</strong>
+                      </div>
+                      {% if compatibility_result.findings %}
+                        <ul class="compatibility-findings">
+                          {% for finding in compatibility_result.findings %}
+                            <li>{{ finding }}</li>
+                          {% endfor %}
+                        </ul>
+                      {% else %}
+                        <p class="muted-note">No findings were reported.</p>
+                      {% endif %}
+                    </div>
+                  {% else %}
+                    <p class="muted-note">Select a robot to run the existing compatibility check.</p>
+                  {% endif %}
+                </section>
+
+                <section class="library-ingest-panel urp-subpanel">
+                  <div class="panel-heading">
+                    <p class="card-label">Safe Params</p>
+                    <h3>Whitelisted editable parameters only</h3>
+                  </div>
+
+                  {% if editable_params_error %}
+                    <div class="item-warning">Editable param lookup failed: {{ editable_params_error }}</div>
+                  {% elif editable_params %}
+                    <dl class="detail-list library-detail-list safe-param-list">
+                      {% for param_name, param_value in editable_params.items() %}
+                        <div>
+                          <dt>{{ param_name }}</dt>
+                          <dd>{{ param_value }}</dd>
+                        </div>
+                      {% endfor %}
+                    </dl>
+
+                    <form method="post" action="{{ url_for('set_urp_param_library_item') }}" class="stack-form assignment-subform">
+                      <input type="hidden" name="program_id" value="{{ selected_item.program_id }}" />
+                      <label class="form-field">
+                        <span>Param</span>
+                        <select name="param_name" required {% if not selected_item.has_stored_file %}disabled{% endif %}>
+                          <option value="">Select param</option>
+                          {% for param_name in editable_params.keys() %}
+                            <option value="{{ param_name }}">{{ param_name }}</option>
+                          {% endfor %}
+                        </select>
+                      </label>
+                      <label class="form-field">
+                        <span>Value</span>
+                        <input type="text" name="value" required {% if not selected_item.has_stored_file %}disabled{% endif %} />
+                      </label>
+                      <button type="submit" class="action-button" {% if not selected_item.has_stored_file %}disabled title="{{ selected_item.stored_file_issue }}"{% endif %}>Set Safe Param</button>
+                      {% if not selected_item.has_stored_file %}
+                        <p class="action-note action-note-warning">{{ selected_item.stored_file_issue }}</p>
+                      {% endif %}
+                    </form>
+                  {% else %}
+                    <p class="muted-note">No safe editable parameters were detected for this URP.</p>
+                  {% endif %}
+                </section>
+              </div>
+            </section>
+          {% endif %}
+        {% endif %}
+      </section>
+    </section>
+  {% else %}
+    <section class="message-panel">
+      <p class="card-label">Empty State</p>
+      <h2>Library is empty.</h2>
+      <p>Add or import programs in later phases to populate the library browser.</p>
+    </section>
+  {% endif %}
+{% endblock %}

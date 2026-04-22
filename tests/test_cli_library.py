@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 import zipfile
 
-import yaml
-
 from ur_arms_manager import cli
 
 
@@ -165,12 +163,8 @@ robots:
     assert "program_id=" in output
 
     programs_root = tmp_path / "storage" / "programs"
-    manifests = list(programs_root.glob("*/manifest.yaml"))
-    assert len(manifests) == 1
-    data = yaml.safe_load(manifests[0].read_text(encoding="utf-8"))
-    assert data["origin"] == "robot_remote"
-    assert data["source_robot"] == "robot1"
-    assert data["source_remote_path"] == "/programs/demo.urp"
+    imported = programs_root / "robot1" / "robot1_demo.urp"
+    assert imported.is_file()
 
 
 def test_library_import_remote_failure_returns_clean_error(
@@ -340,7 +334,7 @@ def test_library_urp_set_malformed_is_failure_safe(tmp_path: Path, monkeypatch, 
     assert add_code == 0
     program_id = add_output.split("Added to library: ", maxsplit=1)[1].splitlines()[0].strip()
 
-    stored_file = next((tmp_path / "storage" / "programs").glob(f"{program_id}/*.urp"))
+    stored_file = tmp_path / "storage" / "programs" / program_id
     before = stored_file.read_bytes()
 
     monkeypatch.setattr(

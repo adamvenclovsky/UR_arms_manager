@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="page-intro">
+    <p class="eyebrow">Phase R1 System Diagnostics</p>
+    <h1>System and configuration sanity.</h1>
+    <p class="lead">
+      Review the active config file, robot definitions, library storage health, and local runtime hints before using robot workspaces.
+    </p>
+  </section>
+
+  <section class="message-panel {% if diagnostics.config_loaded %}message-panel-success{% else %}message-panel-error{% endif %}">
+    <p class="card-label">Config Status</p>
+    <h2>{% if diagnostics.config_loaded %}Configuration loaded{% else %}Configuration problem detected{% endif %}</h2>
+    <p>Config path: <span class="program-value">{{ diagnostics.config_path }}</span></p>
+    {% if diagnostics.config_error %}
+      <p>{{ diagnostics.config_error }}</p>
+    {% endif %}
+  </section>
+
+  <section class="system-grid">
+    <section class="library-detail-panel">
+      <div class="panel-heading">
+        <p class="card-label">Environment</p>
+        <h2>Local runtime hints</h2>
+      </div>
+      <dl class="detail-list library-detail-list">
+        <div class="detail-list-full">
+          <dt>Library Root</dt>
+          <dd class="program-value">{{ diagnostics.library_root_path or "Unavailable" }}</dd>
+        </div>
+        <div>
+          <dt>Library Items</dt>
+          <dd>{{ diagnostics.library_item_count }}</dd>
+        </div>
+        <div>
+          <dt>Stale Library Items</dt>
+          <dd>{{ diagnostics.stale_library_item_count }}</dd>
+        </div>
+        <div>
+          <dt>RTDE Dependency</dt>
+          <dd>{% if diagnostics.rtde_available %}Available{% else %}Not installed{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Configured Robots</dt>
+          <dd>{{ diagnostics.robot_count }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="library-detail-panel">
+      <div class="panel-heading">
+        <p class="card-label">Warnings</p>
+        <h2>Operator checks</h2>
+      </div>
+      {% if diagnostics.warnings %}
+        <ul class="compatibility-findings system-warning-list">
+          {% for warning in diagnostics.warnings %}
+            <li>{{ warning }}</li>
+          {% endfor %}
+        </ul>
+      {% elif diagnostics.config_loaded %}
+        <p class="muted-note">No obvious configuration warnings were detected.</p>
+      {% else %}
+        <p class="muted-note">Resolve the config error first, then reload this page for robot-level checks.</p>
+      {% endif %}
+    </section>
+  </section>
+
+  {% if diagnostics.config_loaded and diagnostics.robots %}
+    <section class="library-detail-panel system-robot-panel">
+      <div class="panel-heading">
+        <p class="card-label">Robot Summary</p>
+        <h2>{{ diagnostics.robots|length }} configured robot{% if diagnostics.robots|length != 1 %}s{% endif %}</h2>
+      </div>
+
+      <div class="system-robot-grid">
+        {% for robot in diagnostics.robots %}
+          <article class="card robot-card">
+            <div class="robot-card-header">
+              <div>
+                <p class="card-label">Robot</p>
+                <h2>{{ robot.name }}</h2>
+              </div>
+              <span class="state-pill {% if robot.enabled %}state-pill-enabled{% else %}state-pill-disabled{% endif %}">
+                {% if robot.enabled %}Enabled{% else %}Disabled{% endif %}
+              </span>
+            </div>
+
+            <dl class="detail-list">
+              <div>
+                <dt>Host</dt>
+                <dd>{{ robot.host }}</dd>
+              </div>
+              <div>
+                <dt>Dashboard Port</dt>
+                <dd>{{ robot.dashboard_port }}</dd>
+              </div>
+              <div>
+                <dt>Script Port</dt>
+                <dd>{{ robot.script_port }}</dd>
+              </div>
+              <div>
+                <dt>SSH Port</dt>
+                <dd>{{ robot.ssh_port }}</dd>
+              </div>
+              <div class="detail-list-full">
+                <dt>Assigned Program</dt>
+                <dd class="program-value">{{ robot.assigned_program }}</dd>
+              </div>
+            </dl>
+
+            {% if robot.warnings %}
+              <div class="library-item-warning">
+                <p class="card-label">Robot Warning</p>
+                <ul class="compatibility-findings system-warning-list">
+                  {% for warning in robot.warnings %}
+                    <li>{{ warning }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% elif diagnostics.config_loaded %}
+    <section class="message-panel">
+      <p class="card-label">Empty State</p>
+      <h2>No robots are configured.</h2>
+      <p>Add robot definitions to the `robots` section before using robot workspaces.</p>
+    </section>
+  {% endif %}
+{% endblock %}

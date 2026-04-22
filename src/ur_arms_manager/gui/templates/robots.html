@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="page-intro">
+    <p class="eyebrow">Phase A Robot Actions</p>
+    <h1>Configured robots from backend registry.</h1>
+    <p class="lead">
+      This page shows robot configuration, lightweight live status refresh, and operator-facing robot actions using the existing backend services.
+    </p>
+  </section>
+
+  {% if error_message %}
+    <section class="message-panel message-panel-error">
+      <p class="card-label">Config Error</p>
+      <h2>Robot configuration could not be loaded.</h2>
+      <p>{{ error_message }}</p>
+    </section>
+  {% elif robot_cards %}
+    <section class="polling-banner" id="status-polling-banner" hidden>
+      <p>Live status refresh is temporarily unavailable. Retrying automatically.</p>
+    </section>
+
+    <section class="robot-grid" aria-label="Configured robots">
+      {% for robot in robot_cards %}
+        <article class="card robot-card" data-robot-name="{{ robot.name }}">
+          <div class="robot-card-header">
+            <div>
+              <p class="card-label">Robot</p>
+              <h2>{{ robot.name }}</h2>
+              <a class="card-link" href="{{ url_for('robot_workspace', robot_name=robot.name) }}">Open Workspace</a>
+            </div>
+            <span class="state-pill {% if robot.enabled %}state-pill-enabled{% else %}state-pill-disabled{% endif %}">
+              {% if robot.enabled %}Enabled{% else %}Disabled{% endif %}
+            </span>
+          </div>
+
+          <dl class="detail-list">
+            <div>
+              <dt>Host</dt>
+              <dd>{{ robot.host }}</dd>
+            </div>
+            <div>
+              <dt>Dashboard Port</dt>
+              <dd>{{ robot.dashboard_port }}</dd>
+            </div>
+            <div>
+              <dt>Script Port</dt>
+              <dd>{{ robot.script_port }}</dd>
+            </div>
+            <div>
+              <dt>SSH Port</dt>
+              <dd>{{ robot.ssh_port }}</dd>
+            </div>
+            <div class="detail-list-full">
+              <dt>Assigned Program</dt>
+              <dd class="program-value">{{ robot.assigned_program }}</dd>
+            </div>
+          </dl>
+
+          <section class="status-panel">
+            <div class="status-panel-header">
+              <p class="card-label">Live Status</p>
+              <div class="status-panel-markers">
+                <span class="source-badge" data-role="source-badge">{{ robot.status.monitoring_source }}</span>
+                <span class="status-badge {{ robot.status.state_class }}" data-role="status-badge">
+                  {{ robot.status.state_label }}
+                </span>
+              </div>
+            </div>
+
+            <dl class="status-list">
+              <div>
+                <dt>Connected</dt>
+                <dd data-role="connected">{{ "Yes" if robot.status.connected else "No" }}</dd>
+              </div>
+              <div>
+                <dt>Robot Mode</dt>
+                <dd data-role="robotmode">{{ robot.status.robotmode }}</dd>
+              </div>
+              <div>
+                <dt>Safety Status</dt>
+                <dd data-role="safety-status">{{ robot.status.safety_status }}</dd>
+              </div>
+              <div>
+                <dt>Program State</dt>
+                <dd data-role="program-state">{{ robot.status.program_state }}</dd>
+              </div>
+              <div class="detail-list-full">
+                <dt>Status Detail</dt>
+                <dd class="status-detail" data-role="status-detail">{{ robot.status.detail }}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="action-panel">
+            <div class="status-panel-header">
+              <p class="card-label">Actions</p>
+            </div>
+
+            {% if robot.actions_disabled_reason %}
+              <p class="action-note action-note-warning">{{ robot.actions_disabled_reason }}</p>
+            {% elif robot.load_disabled_reason %}
+              <p class="action-note">{{ robot.load_disabled_reason }}</p>
+            {% endif %}
+
+            <div class="action-grid">
+              <button type="button" class="action-button" data-action="power-on" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Power On</button>
+              <button type="button" class="action-button" data-action="brake-release" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Brake Release</button>
+              <button type="button" class="action-button action-button-danger" data-action="power-off" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Power Off</button>
+              <button type="button" class="action-button" data-action="load" {% if not robot.can_load or not robot.actions_enabled %}disabled title="{{ robot.load_disabled_reason or robot.actions_disabled_reason }}"{% endif %}>Load</button>
+              <button type="button" class="action-button" data-action="play" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Play</button>
+              <button type="button" class="action-button" data-action="stop" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Stop</button>
+            </div>
+
+            <div class="action-feedback" data-role="action-feedback" hidden></div>
+          </section>
+        </article>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section class="message-panel">
+      <p class="card-label">Empty State</p>
+      <h2>No robots are configured.</h2>
+      <p>Add robot entries to `config/robots.yaml` to populate the dashboard overview.</p>
+    </section>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if robot_cards and not error_message %}
+    <script>
+      (() => {
+        const endpoint = "{{ url_for('robot_statuses') }}";
+        const pollIntervalMs = {{ poll_interval_ms }};
+        const banner = document.getElementById("status-polling-banner");
+
+        function showActionFeedback(card, kind, message) {
+          const feedback = card.querySelector('[data-role="action-feedback"]');
+          feedback.textContent = message;
+          feedback.classList.remove("action-feedback-success", "action-feedback-error");
+          feedback.classList.add(kind === "success" ? "action-feedback-success" : "action-feedback-error");
+          feedback.hidden = false;
+        }
+
+        function updateRobotCard(robot) {
+          const card = document.querySelector(`[data-robot-name="${robot.name}"]`);
+          if (!card) {
+            return;
+          }
+
+          const status = robot.status;
+          const badge = card.querySelector('[data-role="status-badge"]');
+          const sourceBadge = card.querySelector('[data-role="source-badge"]');
+
+          badge.textContent = status.state_label;
+          badge.classList.remove("status-connected", "status-disconnected");
+          badge.classList.add(status.state_class);
+          sourceBadge.textContent = status.monitoring_source;
+
+          card.querySelector('[data-role="connected"]').textContent = status.connected ? "Yes" : "No";
+          card.querySelector('[data-role="robotmode"]').textContent = status.robotmode;
+          card.querySelector('[data-role="safety-status"]').textContent = status.safety_status;
+          card.querySelector('[data-role="program-state"]').textContent = status.program_state;
+          card.querySelector('[data-role="status-detail"]').textContent = status.detail;
+        }
+
+        async function refreshStatuses() {
+          try {
+            const response = await fetch(endpoint, {
+              headers: { "Accept": "application/json" }
+            });
+
+            if (!response.ok) {
+              throw new Error("status endpoint unavailable");
+            }
+
+            const payload = await response.json();
+            if (!payload.ok) {
+              throw new Error(payload.error_message || "status refresh failed");
+            }
+
+            payload.robots.forEach(updateRobotCard);
+            banner.hidden = true;
+          } catch (_error) {
+            banner.hidden = false;
+          }
+        }
+
+        async function runAction(card, actionName, button) {
+          const robotName = card.dataset.robotName;
+
+          button.disabled = true;
+          showActionFeedback(card, "success", `${button.textContent} requested...`);
+
+          try {
+            const response = await fetch(`/api/robots/${encodeURIComponent(robotName)}/actions/${encodeURIComponent(actionName)}`, {
+              method: "POST",
+              headers: { "Accept": "application/json" }
+            });
+            const payload = await response.json();
+
+            if (!response.ok || !payload.ok) {
+              throw new Error(payload.message || "Action failed");
+            }
+
+            showActionFeedback(card, "success", `${payload.action_label} succeeded: ${payload.message}`);
+            await refreshStatuses();
+          } catch (error) {
+            showActionFeedback(card, "error", `${button.textContent} failed: ${error.message}`);
+          } finally {
+            button.disabled = false;
+          }
+        }
+
+        document.querySelectorAll(".robot-card").forEach((card) => {
+          card.querySelectorAll("[data-action]").forEach((button) => {
+            button.addEventListener("click", () => {
+              if (button.disabled) {
+                return;
+              }
+              runAction(card, button.dataset.action, button);
+            });
+          });
+        });
+
+        refreshStatuses();
+        window.setInterval(refreshStatuses, pollIntervalMs);
+      })();
+    </script>
+  {% endif %}
+{% endblock %}

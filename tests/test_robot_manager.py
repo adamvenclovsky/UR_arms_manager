@@ -100,20 +100,23 @@ def test_power_commands_call_dashboard(monkeypatch) -> None:
 
 
 def test_status_unreachable_returns_clean_result(monkeypatch) -> None:
-    class FakeDashboardClient:
-        def __init__(self, _host: str, _port: int):
-            pass
+    def fake_get_robot_monitoring_status(robot, dashboard_client):
+        assert robot.name == "robot1"
+        assert dashboard_client is not None
+        return robot_manager.RobotStatus(
+            name="robot1",
+            connected=False,
+            assigned_program=robot.assigned_program,
+            detail="network unreachable",
+            monitoring_source="dashboard",
+        )
 
-        def get_robotmode(self) -> str:
-            raise RuntimeError("network unreachable")
-
-        def get_program_state(self) -> str:
-            return "unknown"
-
-        def get_safety_status(self) -> str:
-            return "unknown"
-
-    monkeypatch.setattr(robot_manager, "DashboardClient", FakeDashboardClient)
+    monkeypatch.setattr(
+        robot_manager, "get_robot_monitoring_status", fake_get_robot_monitoring_status
+    )
+    monkeypatch.setattr(
+        robot_manager, "DashboardClient", lambda _host, _port: object()
+    )
     manager = robot_manager.RobotManager(_robot())
 
     status = manager.status()

@@ -1,2 +1,3 @@
 [console_scripts]
 uam = ur_arms_manager.cli:main
+uam-gui = ur_arms_manager.gui.app:main

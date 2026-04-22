@@ -7,7 +7,7 @@ robots:
     ssh_username: root
     ssh_password: easybot
     enabled: true
-    assigned_program: programs/test1.urp
+    assigned_program: library://hello-78c94d3f
   robot2:
     host: 127.0.0.1
     dashboard_port: 29992
@@ -16,7 +16,7 @@ robots:
     ssh_username: root
     ssh_password: easybot
     enabled: false
-    assigned_program: null
+    assigned_program: library://hello-78c94d3f
   robot3:
     host: 127.0.0.1
     dashboard_port: 29993

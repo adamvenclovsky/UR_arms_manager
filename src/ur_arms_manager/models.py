@@ -27,6 +27,7 @@ class RobotStatus:
     safety_status: str = "unknown"
     assigned_program: Optional[str] = None
     detail: str = ""
+    monitoring_source: str = "dashboard"
 
 
 @dataclass(slots=True)

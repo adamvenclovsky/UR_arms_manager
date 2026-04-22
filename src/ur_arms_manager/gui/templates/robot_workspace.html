@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="page-intro">
+    <p class="eyebrow">Phase R2 Robot Workspace</p>
+    <h1>Robot workspace for {{ robot_name }}.</h1>
+    <p class="lead">
+      Focus on one robot at a time with its configuration, live state, and runtime actions in one operator page.
+    </p>
+  </section>
+
+  {% if flash_message %}
+    <section class="message-panel {% if flash_kind == 'error' %}message-panel-error{% else %}message-panel-success{% endif %}">
+      <p class="card-label">Robot Workspace Result</p>
+      <h2>{{ flash_message }}</h2>
+    </section>
+  {% endif %}
+
+  {% if error_message %}
+    <section class="message-panel message-panel-error">
+      <p class="card-label">Robot Error</p>
+      <h2>Robot workspace could not be loaded.</h2>
+      <p>{{ error_message }}</p>
+      <p><a class="card-link" href="{{ url_for('robots') }}">Back to robot overview</a></p>
+    </section>
+  {% elif robot_card %}
+    <section class="polling-banner" id="status-polling-banner" hidden>
+      <p>Live status refresh is temporarily unavailable for this robot. Retrying automatically.</p>
+    </section>
+
+    <section class="workspace-grid">
+      <article class="card robot-card workspace-hero-card" data-robot-name="{{ robot_card.name }}">
+        <div class="robot-card-header">
+          <div>
+            <p class="card-label">Robot Workspace</p>
+            <h2>{{ robot_card.name }}</h2>
+            <a class="card-link" href="{{ url_for('robots') }}">Back to robot overview</a>
+          </div>
+          <span class="state-pill {% if robot_card.enabled %}state-pill-enabled{% else %}state-pill-disabled{% endif %}">
+            {% if robot_card.enabled %}Enabled{% else %}Disabled{% endif %}
+          </span>
+        </div>
+
+        <dl class="detail-list">
+          <div>
+            <dt>Host</dt>
+            <dd>{{ robot_card.host }}</dd>
+          </div>
+          <div>
+            <dt>Dashboard Port</dt>
+            <dd>{{ robot_card.dashboard_port }}</dd>
+          </div>
+          <div>
+            <dt>Script Port</dt>
+            <dd>{{ robot_card.script_port }}</dd>
+          </div>
+          <div>
+            <dt>SSH Port</dt>
+            <dd>{{ robot_card.ssh_port }}</dd>
+          </div>
+          <div class="detail-list-full">
+            <dt>Assigned Program</dt>
+            <dd class="program-value" data-role="assigned-program">{{ robot_card.assigned_program }}</dd>
+          </div>
+        </dl>
+      </article>
+
+      <section class="status-panel workspace-panel" data-robot-name="{{ robot_card.name }}">
+        <div class="status-panel-header">
+          <p class="card-label">Live Status</p>
+          <div class="status-panel-markers">
+            <span class="source-badge" data-role="source-badge">{{ robot_card.status.monitoring_source }}</span>
+            <span class="status-badge {{ robot_card.status.state_class }}" data-role="status-badge">
+              {{ robot_card.status.state_label }}
+            </span>
+          </div>
+        </div>
+
+        <dl class="status-list">
+          <div>
+            <dt>Connected</dt>
+            <dd data-role="connected">{{ "Yes" if robot_card.status.connected else "No" }}</dd>
+          </div>
+          <div>
+            <dt>Robot Mode</dt>
+            <dd data-role="robotmode">{{ robot_card.status.robotmode }}</dd>
+          </div>
+          <div>
+            <dt>Safety Status</dt>
+            <dd data-role="safety-status">{{ robot_card.status.safety_status }}</dd>
+          </div>
+          <div>
+            <dt>Program State</dt>
+            <dd data-role="program-state">{{ robot_card.status.program_state }}</dd>
+          </div>
+          <div class="detail-list-full">
+            <dt>Status Detail</dt>
+            <dd class="status-detail" data-role="status-detail">{{ robot_card.status.detail }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="action-panel workspace-panel">
+        <div class="status-panel-header">
+          <p class="card-label">Actions</p>
+        </div>
+
+        {% if robot_card.actions_disabled_reason %}
+          <p class="action-note action-note-warning">{{ robot_card.actions_disabled_reason }}</p>
+        {% elif robot_card.load_disabled_reason %}
+          <p class="action-note">{{ robot_card.load_disabled_reason }}</p>
+        {% endif %}
+
+        <div class="action-grid">
+          <button type="button" class="action-button" data-action="power-on" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Power On</button>
+          <button type="button" class="action-button" data-action="brake-release" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Brake Release</button>
+          <button type="button" class="action-button action-button-danger" data-action="power-off" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Power Off</button>
+          <button type="button" class="action-button" data-action="load" {% if not robot_card.can_load or not robot_card.actions_enabled %}disabled title="{{ robot_card.load_disabled_reason or robot_card.actions_disabled_reason }}"{% endif %}>Load</button>
+          <button type="button" class="action-button" data-action="play" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Play</button>
+          <button type="button" class="action-button" data-action="stop" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Stop</button>
+        </div>
+
+        <div class="action-feedback" data-role="action-feedback" hidden></div>
+      </section>
+
+      <section class="library-detail-panel workspace-panel workspace-full-panel">
+        <div class="status-panel-header">
+          <div>
+            <p class="card-label">Robot Files</p>
+            <h2>SSH/SFTP file browser</h2>
+          </div>
+        </div>
+
+        <p class="muted-note">
+          These paths are robot-side SSH/SFTP filesystem paths. They are not dashboard/controller-visible load paths.
+        </p>
+
+        <dl class="detail-list library-detail-list">
+          <div class="detail-list-full">
+            <dt>Current Remote Path</dt>
+            <dd class="program-value">{{ file_browser.current_dir }}</dd>
+          </div>
+        </dl>
+
+        {% if file_browser.parent_dir %}
+          <p><a class="card-link" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.parent_dir }}">Up One Level</a></p>
+        {% endif %}
+
+        {% if file_browser.listing_error %}
+          <div class="library-item-warning">
+            <p class="card-label">File Browser Error</p>
+            <p>{{ file_browser.listing_error }}</p>
+          </div>
+        {% elif file_browser.entries %}
+          <div class="robot-file-list">
+            {% for entry in file_browser.entries %}
+              {% if entry.kind == "directory" %}
+                <a class="robot-file-row robot-file-row-directory" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ entry.remote_path }}">
+                  <div class="library-row-main">
+                    <strong>{{ entry.name }}</strong>
+                    <span class="type-badge type-unknown">{{ entry.kind_label }}</span>
+                  </div>
+                  <div class="library-row-meta">
+                    <span>{{ entry.remote_path }}</span>
+                  </div>
+                </a>
+              {% else %}
+                <a class="robot-file-row {% if selected_remote_path == entry.remote_path %}library-row-active{% endif %}" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}&selected_remote_path={{ entry.remote_path }}">
+                  <div class="library-row-main">
+                    <strong>{{ entry.name }}</strong>
+                    <span class="type-badge {% if entry.name.endswith('.script') %}type-script{% elif entry.name.endswith('.urp') %}type-urp{% else %}type-unknown{% endif %}">{{ entry.kind_label }}</span>
+                  </div>
+                  <div class="library-row-meta">
+                    <span>{{ entry.remote_path }}</span>
+                  </div>
+                </a>
+              {% endif %}
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted-note">No files or directories were returned for this remote path.</p>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('import_robot_workspace_file', robot_name=robot_card.name) }}" class="library-remove-form">
+          <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
+          <input type="hidden" name="remote_path" value="{{ selected_remote_path or '' }}" />
+          {% if selected_remote_path %}
+            <p class="action-note">Selected file: <span class="program-value">{{ selected_remote_path }}</span></p>
+          {% else %}
+            <p class="action-note">Select one file from the robot file list, then import it into Library.</p>
+          {% endif %}
+          <button type="submit" class="action-button" {% if not selected_remote_path %}disabled{% endif %}>Import Selected File to Library</button>
+        </form>
+      </section>
+    </section>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if robot_card and not error_message %}
+    <script>
+      (() => {
+        const robotName = "{{ robot_card.name }}";
+        const endpoint = `/api/robots/${encodeURIComponent(robotName)}/status`;
+        const pollIntervalMs = {{ poll_interval_ms }};
+        const banner = document.getElementById("status-polling-banner");
+        const card = document.querySelector('[data-robot-name="{{ robot_card.name }}"]');
+        const workspacePanel = document.querySelector('.workspace-panel[data-robot-name="{{ robot_card.name }}"]');
+
+        function showActionFeedback(kind, message) {
+          const feedback = document.querySelector('[data-role="action-feedback"]');
+          feedback.textContent = message;
+          feedback.classList.remove("action-feedback-success", "action-feedback-error");
+          feedback.classList.add(kind === "success" ? "action-feedback-success" : "action-feedback-error");
+          feedback.hidden = false;
+        }
+
+        function updateWorkspace(robot) {
+          const status = robot.status;
+          const statusRoot = workspacePanel;
+          const badge = statusRoot.querySelector('[data-role="status-badge"]');
+          const sourceBadge = statusRoot.querySelector('[data-role="source-badge"]');
+
+          badge.textContent = status.state_label;
+          badge.classList.remove("status-connected", "status-disconnected");
+          badge.classList.add(status.state_class);
+          sourceBadge.textContent = status.monitoring_source;
+
+          statusRoot.querySelector('[data-role="connected"]').textContent = status.connected ? "Yes" : "No";
+          statusRoot.querySelector('[data-role="robotmode"]').textContent = status.robotmode;
+          statusRoot.querySelector('[data-role="safety-status"]').textContent = status.safety_status;
+          statusRoot.querySelector('[data-role="program-state"]').textContent = status.program_state;
+          statusRoot.querySelector('[data-role="status-detail"]').textContent = status.detail;
+          card.querySelector('[data-role="assigned-program"]').textContent = robot.assigned_program;
+        }
+
+        async function refreshStatus() {
+          try {
+            const response = await fetch(endpoint, {
+              headers: { "Accept": "application/json" }
+            });
+
+            const payload = await response.json();
+            if (!response.ok || !payload.ok) {
+              throw new Error(payload.error_message || "status refresh failed");
+            }
+
+            updateWorkspace(payload.robot);
+            banner.hidden = true;
+          } catch (_error) {
+            banner.hidden = false;
+          }
+        }
+
+        async function runAction(button) {
+          button.disabled = true;
+          showActionFeedback("success", `${button.textContent} requested...`);
+
+          try {
+            const response = await fetch(`/api/robots/${encodeURIComponent(robotName)}/actions/${encodeURIComponent(button.dataset.action)}`, {
+              method: "POST",
+              headers: { "Accept": "application/json" }
+            });
+            const payload = await response.json();
+
+            if (!response.ok || !payload.ok) {
+              throw new Error(payload.message || "Action failed");
+            }
+
+            showActionFeedback("success", `${payload.action_label} succeeded: ${payload.message}`);
+            await refreshStatus();
+          } catch (error) {
+            showActionFeedback("error", `${button.textContent} failed: ${error.message}`);
+          } finally {
+            button.disabled = false;
+          }
+        }
+
+        document.querySelectorAll("[data-action]").forEach((button) => {
+          button.addEventListener("click", () => {
+            if (button.disabled) {
+              return;
+            }
+            runAction(button);
+          });
+        });
+
+        refreshStatus();
+        window.setInterval(refreshStatus, pollIntervalMs);
+      })();
+    </script>
+  {% endif %}
+{% endblock %}

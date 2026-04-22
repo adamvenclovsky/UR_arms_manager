@@ -14,6 +14,12 @@ src/ur_arms_manager.egg-info/top_level.txt
 src/ur_arms_manager/adapters/ur/dashboard_client.py
 src/ur_arms_manager/adapters/ur/file_client.py
 src/ur_arms_manager/adapters/ur/script_client.py
+src/ur_arms_manager/gui/__init__.py
+src/ur_arms_manager/gui/app.py
+src/ur_arms_manager/gui/static/styles.css
+src/ur_arms_manager/gui/templates/base.html
+src/ur_arms_manager/gui/templates/index.html
+src/ur_arms_manager/gui/templates/section.html
 src/ur_arms_manager/library/__init__.py
 src/ur_arms_manager/library/manifest.py
 src/ur_arms_manager/library/storage.py
@@ -25,6 +31,8 @@ tests/test_cli.py
 tests/test_cli_compatibility.py
 tests/test_cli_library.py
 tests/test_compatibility.py
+tests/test_file_client.py
+tests/test_gui_app.py
 tests/test_library_manager.py
 tests/test_registry.py
 tests/test_robot_manager.py

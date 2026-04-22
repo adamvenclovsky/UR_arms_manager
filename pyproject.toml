@@ -11,13 +11,22 @@ requires-python = ">=3.10"
 dependencies = [
   "PyYAML>=6.0",
   "paramiko>=3.4",
+  "fastapi>=0.111",
+  "Jinja2>=3.1",
+  "python-multipart>=0.0.9",
+  "uvicorn>=0.30",
+  "ur-rtde>=1.5",
 ]
 
 [project.scripts]
 uam = "ur_arms_manager.cli:main"
+uam-gui = "ur_arms_manager.gui.app:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+"ur_arms_manager.gui" = ["templates/*.html", "static/*.css"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -6,6 +6,7 @@ from ur_arms_manager.adapters.ur.dashboard_client import DashboardClient
 from ur_arms_manager.adapters.ur.file_client import FileClient
 from ur_arms_manager.adapters.ur.script_client import ScriptClient
 from ur_arms_manager.models import RobotConfig, RobotStatus
+from ur_arms_manager.services.monitoring import get_robot_monitoring_status
 
 
 class RobotManager:
@@ -26,25 +27,7 @@ class RobotManager:
         return self._file_client
 
     def status(self) -> RobotStatus:
-        try:
-            robotmode = self.dashboard.get_robotmode()
-            program_running = self.dashboard.get_program_state()
-            safety_status = self.dashboard.get_safety_status()
-            return RobotStatus(
-                name=self.robot.name,
-                connected=True,
-                robotmode=robotmode,
-                program_running=program_running,
-                safety_status=safety_status,
-                assigned_program=self.robot.assigned_program,
-            )
-        except Exception as exc:
-            return RobotStatus(
-                name=self.robot.name,
-                connected=False,
-                assigned_program=self.robot.assigned_program,
-                detail=str(exc),
-            )
+        return get_robot_monitoring_status(self.robot, dashboard_client=self.dashboard)
 
     def load_assigned_program(self) -> str:
         if not self.robot.assigned_program:
