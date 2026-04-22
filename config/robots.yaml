@@ -7,12 +7,12 @@ robots:
     ssh_username: root
     ssh_password: easybot
     enabled: true
-    assigned_program: library://hello-78c94d3f
+    assigned_program: /programs/hello.script
   robot2:
     host: 127.0.0.1
     dashboard_port: 29992
     script_port: 30022
-    ssh_port: 22
+    ssh_port: 2223
     ssh_username: root
     ssh_password: easybot
     enabled: false
