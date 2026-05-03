@@ -20,38 +20,22 @@ Current implementation covers:
 
 ## Project documentation
 
-Key docs:
-- `docs/architecture_current.md`
-- `docs/runtime_notes_ursim.md`
-- `docs/master_prompt_codex_backend.md`
-- `docs/master_prompt_codex_gui.md`
-- `docs/gui_phase_plan.md`
-
-## GUI implementation plan
-
-A dedicated GUI design-prep package is now in the repository.
-
-- `docs/gui_phase_plan.md`
-- `docs/gui_ui_contracts.md`
-- `docs/gui_operator_workflows.md`
-
-An active mixed backend + GUI sprint plan also exists:
-- `docs/sprint_plan_rtde_gui.md`
-
-A new workspace-style GUI redesign plan also exists:
-- `docs/workspace_redesign_plan.md`
-
-A new filesystem-first storage redesign plan also exists:
+Active source-of-truth docs:
+- `ur_arms_manager_spec_handoff.md`
+- `uram_final_gui_handoff.txt`
+- `docs/program_bundle_workflow.md`
+- `docs/runtime_validation_bundle_flow.md`
 - `docs/filesystem_first_redesign_plan.md`
+- `docs/runtime_notes_ursim.md`
+- `docs/docs_source_of_truth.md`
 
 Phase 1 GUI run:
 - `pip install -e .`
 - `uam-gui`
 - open `http://127.0.0.1:8000/`
 
-Historical/legacy docs:
-- `docs/architecture_backend_v1.md`
-- `docs/roadmap_backend_legacy.md`
+Historical phase-planning/legacy docs were intentionally pruned.
+See `docs/docs_source_of_truth.md` for the active guidance set.
 
 ## Install
 
@@ -265,14 +249,17 @@ Local storage root:
 
 storage/programs/
 
-Each item is stored under:
+For new empty setups, library root starts empty by default:
+- no auto-created `robot1/robot2/robot3` folders
+- no required `uploaded/` folder
+- uploads/imports can target root or any user-created folder
 
-storage/programs/<program_id>/
+Library is filesystem-first:
 
-with:
-
-copied file
-manifest.yaml
+- folders/files physically present under `storage/programs/` are the source of truth
+- no manifest file is required for runtime paths
+- UR program bundles are normal folders with `.urp` + optional companion files
+- bundle import preview/commit normalizes unsafe primary `.urp` names by default (source files are not mutated)
 
 Commands:
 
@@ -477,16 +464,9 @@ ssh: 2223
 For more setup details, keep project-specific notes in:
 
 docs/runtime_notes_ursim.md
-GUI plan
+GUI documentation source-of-truth:
 
-A separate GUI implementation stage is planned on top of the existing backend core.
-
-See:
-
-docs/master_prompt_codex_gui.md
-docs/gui_phase_plan.md
-
-The GUI stage follows an 11-phase plan and is intentionally separated from the original backend implementation history.
+docs/docs_source_of_truth.md
 
 Current status
 

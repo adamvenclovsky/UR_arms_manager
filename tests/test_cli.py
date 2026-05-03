@@ -415,23 +415,14 @@ def test_robot_assign_library_sets_default_remote_path(
 ) -> None:
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")
-    storage_root = tmp_path / "storage" / "programs" / "demo-1234"
+    storage_root = tmp_path / "storage" / "library" / "uploaded"
     storage_root.mkdir(parents=True, exist_ok=True)
-
-    manifest = {
-        "program_id": "demo-1234",
-        "original_filename": "demo.urp",
-        "stored_filename": "demo.urp",
-        "stored_path": str(storage_root / "demo.urp"),
-        "extension": "urp",
-        "created_at": "2026-01-01T00:00:00+00:00",
-    }
-    (storage_root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    (storage_root / "demo.urp").write_bytes(b"payload")
 
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
 
-    exit_code = cli._main(["robot", "assign-library", "robot1", "demo-1234"])
+    exit_code = cli._main(["robot", "assign-library", "robot1", "uploaded/demo.urp"])
     output = capsys.readouterr().out
     saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
@@ -443,20 +434,10 @@ def test_robot_assign_library_sets_default_remote_path(
 def test_robot_deploy_uses_default_programs_dir(tmp_path: Path, monkeypatch, capsys) -> None:
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")
-    storage_root = tmp_path / "storage" / "programs" / "demo-1234"
+    storage_root = tmp_path / "storage" / "library" / "uploaded"
     storage_root.mkdir(parents=True, exist_ok=True)
     local_file = storage_root / "demo.urp"
     local_file.write_bytes(b"payload")
-
-    manifest = {
-        "program_id": "demo-1234",
-        "original_filename": "demo.urp",
-        "stored_filename": "demo.urp",
-        "stored_path": str(local_file),
-        "extension": "urp",
-        "created_at": "2026-01-01T00:00:00+00:00",
-    }
-    (storage_root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
 
     class FakeRobotManager:
         def __init__(self, _robot):
@@ -468,10 +449,10 @@ def test_robot_deploy_uses_default_programs_dir(tmp_path: Path, monkeypatch, cap
             return remote_path
 
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "RobotManager", FakeRobotManager)
 
-    exit_code = cli._main(["robot", "deploy", "robot1", "demo-1234"])
+    exit_code = cli._main(["robot", "deploy", "robot1", "uploaded/demo.urp"])
     output = capsys.readouterr().out
 
     assert exit_code == 0
@@ -484,33 +465,23 @@ def test_robot_deploy_library_missing_returns_clean_error(
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli.sys, "argv", ["uam", "robot", "deploy", "robot1", "missing-id"])
 
     exit_code = cli.main()
     output = capsys.readouterr().out
 
     assert exit_code == 3
-    assert "[library error] Library item not found: missing-id" in output
+    assert "[library error] Stored library file not found for 'missing-id'" in output
 
 
 def test_robot_deploy_with_custom_remote_dir(tmp_path: Path, monkeypatch, capsys) -> None:
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")
-    storage_root = tmp_path / "storage" / "programs" / "demo-1234"
+    storage_root = tmp_path / "storage" / "library" / "uploaded"
     storage_root.mkdir(parents=True, exist_ok=True)
     local_file = storage_root / "demo.urp"
     local_file.write_bytes(b"payload")
-
-    manifest = {
-        "program_id": "demo-1234",
-        "original_filename": "demo.urp",
-        "stored_filename": "demo.urp",
-        "stored_path": str(local_file),
-        "extension": "urp",
-        "created_at": "2026-01-01T00:00:00+00:00",
-    }
-    (storage_root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
 
     class FakeRobotManager:
         def __init__(self, _robot):
@@ -522,10 +493,10 @@ def test_robot_deploy_with_custom_remote_dir(tmp_path: Path, monkeypatch, capsys
             return remote_path
 
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "RobotManager", FakeRobotManager)
 
-    exit_code = cli._main(["robot", "deploy", "robot1", "demo-1234", "/my_programs"])
+    exit_code = cli._main(["robot", "deploy", "robot1", "uploaded/demo.urp", "/my_programs"])
     output = capsys.readouterr().out
 
     assert exit_code == 0
@@ -535,20 +506,10 @@ def test_robot_deploy_with_custom_remote_dir(tmp_path: Path, monkeypatch, capsys
 def test_robot_run_script_success(tmp_path: Path, monkeypatch, capsys) -> None:
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")
-    storage_root = tmp_path / "storage" / "programs" / "demo-script-1234"
+    storage_root = tmp_path / "storage" / "library" / "uploaded"
     storage_root.mkdir(parents=True, exist_ok=True)
     local_file = storage_root / "demo.script"
     local_file.write_text("def demo():\n  textmsg(\"ok\")\nend\n", encoding="utf-8")
-
-    manifest = {
-        "program_id": "demo-script-1234",
-        "original_filename": "demo.script",
-        "stored_filename": "demo.script",
-        "stored_path": str(local_file),
-        "extension": "script",
-        "created_at": "2026-01-01T00:00:00+00:00",
-    }
-    (storage_root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
 
     class FakeRobotManager:
         def __init__(self, _robot):
@@ -559,10 +520,10 @@ def test_robot_run_script_success(tmp_path: Path, monkeypatch, capsys) -> None:
             return "Script sent to robot 'robot1' from local storage"
 
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "RobotManager", FakeRobotManager)
 
-    exit_code = cli._main(["robot", "run-script", "robot1", "demo-script-1234"])
+    exit_code = cli._main(["robot", "run-script", "robot1", "uploaded/demo.script"])
     output = capsys.readouterr().out
 
     assert exit_code == 0
@@ -574,30 +535,20 @@ def test_robot_run_script_rejects_non_script_item(
 ) -> None:
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")
-    storage_root = tmp_path / "storage" / "programs" / "demo-urp-1234"
+    storage_root = tmp_path / "storage" / "library" / "uploaded"
     storage_root.mkdir(parents=True, exist_ok=True)
     local_file = storage_root / "demo.urp"
     local_file.write_text("<Program/>", encoding="utf-8")
 
-    manifest = {
-        "program_id": "demo-urp-1234",
-        "original_filename": "demo.urp",
-        "stored_filename": "demo.urp",
-        "stored_path": str(local_file),
-        "extension": "urp",
-        "created_at": "2026-01-01T00:00:00+00:00",
-    }
-    (storage_root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
-
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
-    monkeypatch.setattr(cli.sys, "argv", ["uam", "robot", "run-script", "robot1", "demo-urp-1234"])
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
+    monkeypatch.setattr(cli.sys, "argv", ["uam", "robot", "run-script", "robot1", "uploaded/demo.urp"])
 
     exit_code = cli.main()
     output = capsys.readouterr().out
 
     assert exit_code == 3
-    assert "[library error] Library item is not a .script program: demo-urp-1234" in output
+    assert "[library error] Library item is not a .script program: uploaded/demo.urp" in output
 
 
 def test_robot_assign_script_stores_library_marker(
@@ -605,29 +556,20 @@ def test_robot_assign_script_stores_library_marker(
 ) -> None:
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")
-    storage_root = tmp_path / "storage" / "programs" / "demo-script-5678"
+    storage_root = tmp_path / "storage" / "library" / "uploaded"
     storage_root.mkdir(parents=True, exist_ok=True)
-
-    manifest = {
-        "program_id": "demo-script-5678",
-        "original_filename": "demo.script",
-        "stored_filename": "demo.script",
-        "stored_path": str(storage_root / "demo.script"),
-        "extension": "script",
-        "created_at": "2026-01-01T00:00:00+00:00",
-    }
-    (storage_root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    (storage_root / "demo.script").write_text("def demo():\nend\n", encoding="utf-8")
 
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
 
-    exit_code = cli._main(["robot", "assign-script", "robot1", "demo-script-5678"])
+    exit_code = cli._main(["robot", "assign-script", "robot1", "uploaded/demo.script"])
     output = capsys.readouterr().out
     saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     assert exit_code == 0
-    assert "library://demo-script-5678" in output
-    assert saved["robots"]["robot1"]["assigned_program"] == "library://demo-script-5678"
+    assert "library://uploaded/demo.script" in output
+    assert saved["robots"]["robot1"]["assigned_program"] == "library://uploaded/demo.script"
 
 
 def test_robot_run_script_connection_failure_returns_clean_error(
@@ -635,20 +577,10 @@ def test_robot_run_script_connection_failure_returns_clean_error(
 ) -> None:
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")
-    storage_root = tmp_path / "storage" / "programs" / "demo-script-9999"
+    storage_root = tmp_path / "storage" / "library" / "uploaded"
     storage_root.mkdir(parents=True, exist_ok=True)
     local_file = storage_root / "demo.script"
     local_file.write_text("def demo():\nend\n", encoding="utf-8")
-
-    manifest = {
-        "program_id": "demo-script-9999",
-        "original_filename": "demo.script",
-        "stored_filename": "demo.script",
-        "stored_path": str(local_file),
-        "extension": "script",
-        "created_at": "2026-01-01T00:00:00+00:00",
-    }
-    (storage_root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
 
     class FakeRobotManager:
         def __init__(self, _robot):
@@ -658,10 +590,10 @@ def test_robot_run_script_connection_failure_returns_clean_error(
             raise RuntimeError("Spuštění scriptu selhalo pro robot 'robot1': connection refused")
 
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "RobotManager", FakeRobotManager)
     monkeypatch.setattr(
-        cli.sys, "argv", ["uam", "robot", "run-script", "robot1", "demo-script-9999"]
+        cli.sys, "argv", ["uam", "robot", "run-script", "robot1", "uploaded/demo.script"]
     )
 
     exit_code = cli.main()

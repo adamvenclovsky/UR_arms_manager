@@ -1,0 +1,25 @@
+UR Arms Manager - Final GUI Handoff (Active Basis)
+
+Frontend technology direction:
+- FastAPI + Jinja templates
+- HTMX where useful
+- minimal vanilla JavaScript where needed
+- no React / no heavy SPA pipeline
+
+Approved GUI structure:
+1) Fleet Overview
+2) Robot Workspace
+3) Library Workspace
+4) Transfer & Assignment Flow
+
+GUI truth rules:
+- show real filesystem state (local Library and remote robot storage)
+- keep runtime truth explicit (assigned path, derived load arg, last load outcome, response, ready-for-play)
+- visually separate dashboard runtime controls from direct .script execution
+- treat bundles as first-class in Library and Transfer flows
+- keep environment-sensitive assumptions visible (URSim-specific profile wording must not be presented as universal)
+
+Out-of-scope for this handoff:
+- heavy SPA rewrite
+- backend architecture rewrite
+- fake metrics not backed by services

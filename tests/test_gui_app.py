@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 from fastapi.testclient import TestClient
 
@@ -6,6 +7,12 @@ from ur_arms_manager.gui import app, create_app
 from ur_arms_manager.models import RobotStatus
 from ur_arms_manager.services.compatibility import CompatibilityResult
 from ur_arms_manager.services.library_manager import LibraryError
+from ur_arms_manager.services.runtime_validation import (
+    LoadValidationResult,
+    derive_dashboard_load_argument,
+    normalize_runtime_safe_filename,
+    runtime_name_safety_warning,
+)
 
 
 client = TestClient(app)
@@ -17,7 +24,10 @@ class FakeRobotManager:
     action_errors: dict[tuple[str, str], str] = {}
     calls: list[tuple[str, str]] = []
     remote_dirs: dict[tuple[str, str], list[str]] = {}
+    remote_entries: dict[tuple[str, str], list[dict]] = {}
     remote_dir_errors: dict[tuple[str, str], str] = {}
+    remote_file_action_errors: dict[tuple[str, str, str], str] = {}
+    explicit_load_outcomes: dict[str, str] = {}
 
     def __init__(self, robot) -> None:
         self.robot = robot
@@ -44,6 +54,68 @@ class FakeRobotManager:
     def load_assigned_program(self) -> str:
         return self._run_action("load")
 
+    def validate_assigned_runtime_load(
+        self, assigned_runtime_path: str | None = None
+    ) -> LoadValidationResult:
+        key = (self.robot.name, "load")
+        self.calls.append(key)
+        assigned_path = (
+            str(assigned_runtime_path).strip()
+            if assigned_runtime_path is not None
+            else str(self.robot.assigned_program or "").strip()
+        ) or None
+        derived = None
+        if assigned_path:
+            try:
+                derived = derive_dashboard_load_argument(assigned_path)
+            except Exception:
+                derived = assigned_path
+
+        unsafe_warning = runtime_name_safety_warning(derived)
+        if unsafe_warning:
+            return LoadValidationResult(
+                robot_name=self.robot.name,
+                assigned_runtime_path=assigned_path,
+                derived_dashboard_load_argument=derived,
+                raw_dashboard_response=None,
+                outcome="unsafe_runtime_path",
+                notes=[
+                    "Cannot validate dashboard load because the derived load argument contains spaces or unsafe characters. Prepare a runtime-safe bundle first.",
+                    unsafe_warning,
+                ],
+                ready_for_play=False,
+            )
+
+        if key in self.action_errors:
+            raw = self.action_errors[key]
+            normalized = str(raw).lower()
+            if "could not understand" in normalized:
+                outcome = "parser_error"
+            elif "file not found" in normalized:
+                outcome = "file_not_found"
+            else:
+                outcome = self.explicit_load_outcomes.get(self.robot.name, "load_error")
+            return LoadValidationResult(
+                robot_name=self.robot.name,
+                assigned_runtime_path=assigned_path,
+                derived_dashboard_load_argument=derived,
+                raw_dashboard_response=raw,
+                outcome=outcome,
+                notes=[],
+                ready_for_play=False,
+            )
+
+        raw_response = self.action_results.get(key, "Loading program: programs/demo.urp")
+        return LoadValidationResult(
+            robot_name=self.robot.name,
+            assigned_runtime_path=assigned_path,
+            derived_dashboard_load_argument=derived,
+            raw_dashboard_response=raw_response,
+            outcome=self.explicit_load_outcomes.get(self.robot.name, "success"),
+            notes=[],
+            ready_for_play=self.explicit_load_outcomes.get(self.robot.name, "success") == "success",
+        )
+
     def play_program(self) -> str:
         return self._run_action("play")
 
@@ -61,9 +133,90 @@ class FakeRobotManager:
             raise RuntimeError(self.remote_dir_errors[key])
         return self.remote_dirs.get(key, [])
 
+    def list_remote_entries(self, remote_dir: str = "/programs") -> list[dict]:
+        key = (self.robot.name, remote_dir)
+        if key in self.remote_dir_errors:
+            raise RuntimeError(self.remote_dir_errors[key])
+        if key in self.remote_entries:
+            return self.remote_entries[key]
+        return [
+            {
+                "name": name,
+                "is_dir": False,
+                "kind": "file",
+            }
+            for name in self.remote_dirs.get(key, [])
+        ]
+
+    def create_remote_folder(self, remote_dir: str) -> str:
+        key = (self.robot.name, "create-folder", remote_dir)
+        if key in self.remote_file_action_errors:
+            raise RuntimeError(self.remote_file_action_errors[key])
+        self.calls.append(("create-folder", remote_dir))
+        return remote_dir
+
+    def remove_remote_file(self, remote_path: str) -> str:
+        key = (self.robot.name, "remove-file", remote_path)
+        if key in self.remote_file_action_errors:
+            raise RuntimeError(self.remote_file_action_errors[key])
+        self.calls.append(("remove-file", remote_path))
+        return remote_path
+
+    def remove_remote_folder(self, remote_dir: str) -> str:
+        key = (self.robot.name, "remove-folder", remote_dir)
+        if key in self.remote_file_action_errors:
+            raise RuntimeError(self.remote_file_action_errors[key])
+        self.calls.append(("remove-folder", remote_dir))
+        return remote_dir
+
+    def move_remote_path(self, source_path: str, destination_path: str) -> str:
+        key = (self.robot.name, "move", source_path)
+        if key in self.remote_file_action_errors:
+            raise RuntimeError(self.remote_file_action_errors[key])
+        self.calls.append(("move", f"{source_path}->{destination_path}"))
+        return destination_path
+
+    def copy_remote_file(self, source_path: str, destination_path: str) -> str:
+        key = (self.robot.name, "copy", source_path)
+        if key in self.remote_file_action_errors:
+            raise RuntimeError(self.remote_file_action_errors[key])
+        self.calls.append(("copy", f"{source_path}->{destination_path}"))
+        return destination_path
+
     def deploy_local_file(self, local_source: Path, remote_destination: str) -> str:
+        key = (self.robot.name, "deploy", remote_destination)
+        if key in self.remote_file_action_errors:
+            raise RuntimeError(self.remote_file_action_errors[key])
         self.calls.append(("deploy", f"{local_source.name}:{remote_destination}"))
         return remote_destination
+
+    def deploy_local_bundle(
+        self, local_source_dir: Path, remote_destination_dir: str
+    ) -> dict:
+        key = (self.robot.name, "deploy-bundle", remote_destination_dir)
+        if key in self.remote_file_action_errors:
+            raise RuntimeError(self.remote_file_action_errors[key])
+        files = [
+            path
+            for path in sorted(local_source_dir.rglob("*"))
+            if path.is_file()
+        ]
+        deployed_files = []
+        for file_path in files:
+            relative = file_path.relative_to(local_source_dir).as_posix()
+            remote = f"{remote_destination_dir.rstrip('/')}/{relative}"
+            deployed_files.append(
+                {
+                    "local_path": str(file_path),
+                    "relative_path": relative,
+                    "remote_path": remote,
+                }
+            )
+        self.calls.append(("deploy-bundle", f"{local_source_dir.name}:{remote_destination_dir}"))
+        return {
+            "remote_destination_dir": remote_destination_dir,
+            "files": deployed_files,
+        }
 
     def run_script_file(self, local_script_path: Path) -> str:
         self.calls.append(("run-script", local_script_path.name))
@@ -71,117 +224,508 @@ class FakeRobotManager:
 
 
 class FakeLibraryManager:
-    items: list[dict] = []
+    entries: dict[str, dict] = {}
+    list_errors: dict[str, str] = {}
     inspect_errors: dict[str, str] = {}
     remove_errors: dict[str, str] = {}
-    removed: list[str] = []
     add_error: str | None = None
-    editable_params: dict[str, dict[str, str]] = {}
-    editable_param_errors: dict[str, str] = {}
-    set_param_errors: dict[tuple[str, str], str] = {}
-    urp_analysis_by_id: dict[str, dict] = {}
+    create_folder_error: str | None = None
+    move_errors: dict[tuple[str, str], str] = {}
+    copy_errors: dict[tuple[str, str], str] = {}
+    stored_file_errors: dict[str, str] = {}
+    bundle_errors: dict[str, str] = {}
+    safe_copy_errors: dict[str, str] = {}
+    removed: list[str] = []
 
     class _Storage:
-        programs_root = Path("storage/programs")
+        programs_root = Path("storage/library")
 
         def list_program_ids(self):
-            return []
+            return [
+                path
+                for path, entry in FakeLibraryManager.entries.items()
+                if entry.get("item_kind") == "file"
+            ]
 
     def __init__(self) -> None:
         self.storage = self._Storage()
-        self.storage.list_program_ids = lambda: [item["program_id"] for item in self.items]
+        self.storage.list_program_ids = lambda: [
+            path
+            for path, entry in self.entries.items()
+            if entry.get("item_kind") == "file"
+        ]
 
-    def inspect_item(self, program_id: str) -> dict:
-        if program_id in self.inspect_errors:
-            raise LibraryError(self.inspect_errors[program_id])
-        for item in self.items:
-            if item["program_id"] == program_id:
-                return item
-        raise LibraryError(f"Library item not found: {program_id}")
+    def _default_entry(self, library_path: str, is_dir: bool = False) -> dict:
+        path_obj = Path(library_path)
+        item_kind = "directory" if is_dir else "file"
+        extension = "" if is_dir else path_obj.suffix.lstrip(".")
+        return {
+            "program_id": library_path,
+            "library_path": library_path,
+            "relative_path": library_path,
+            "name": path_obj.name,
+            "original_filename": path_obj.name,
+            "extension": extension,
+            "item_kind": item_kind,
+            "is_dir": is_dir,
+            "stored_path": str(self.storage.programs_root / library_path),
+            "origin": "robot_remote" if library_path.startswith("robot") else "local",
+        }
 
-    def remove_item(self, program_id: str) -> dict:
-        if program_id in self.remove_errors:
-            raise LibraryError(self.remove_errors[program_id])
-        for item in list(self.items):
-            if item["program_id"] == program_id:
-                self.items.remove(item)
-                self.removed.append(program_id)
-                return item
-        raise LibraryError(f"Library item not found: {program_id}")
+    def _sanitize_bundle_name(self, name: str) -> str:
+        normalized = re.sub(r"[^A-Za-z0-9._-]+", "_", str(name or "").strip())
+        normalized = re.sub(r"_+", "_", normalized).strip("._-")
+        return normalized or "bundle"
 
-    def add_item(self, local_file_path: str, extra_metadata: dict | None = None) -> dict:
+    def list_directory(self, relative_dir: str = "") -> list[dict]:
+        relative_dir = relative_dir.strip("/")
+        if relative_dir in self.list_errors:
+            raise LibraryError(self.list_errors[relative_dir])
+
+        children: list[dict] = []
+        seen_dirs: set[str] = set()
+        prefix = f"{relative_dir}/" if relative_dir else ""
+        for path, entry in sorted(self.entries.items()):
+            if prefix and not path.startswith(prefix):
+                continue
+            if not prefix and "/" not in path:
+                children.append(dict(entry))
+                continue
+            if prefix:
+                remainder = path[len(prefix):]
+            else:
+                remainder = path
+            if "/" not in remainder:
+                children.append(dict(entry))
+                continue
+            child_name = remainder.split("/", 1)[0]
+            child_path = f"{prefix}{child_name}" if prefix else child_name
+            if child_path in seen_dirs:
+                continue
+            seen_dirs.add(child_path)
+            children.append(self._default_entry(child_path, is_dir=True))
+        return children
+
+    def inspect_item(self, library_path: str) -> dict:
+        library_path = library_path.strip("/")
+        if library_path in self.inspect_errors:
+            raise LibraryError(self.inspect_errors[library_path])
+        if library_path in self.entries:
+            return dict(self.entries[library_path])
+
+        prefix = f"{library_path}/"
+        if any(path.startswith(prefix) for path in self.entries):
+            item = self._default_entry(library_path, is_dir=True)
+            first_child = next(
+                (
+                    entry
+                    for path, entry in sorted(self.entries.items())
+                    if path.startswith(prefix)
+                ),
+                None,
+            )
+            if first_child and first_child.get("stored_path"):
+                item["stored_path"] = str(Path(first_child["stored_path"]).parent)
+            try:
+                item["bundle_summary"] = self.inspect_bundle(library_path)
+            except LibraryError:
+                pass
+            return item
+        raise LibraryError(f"Library path not found: {library_path}")
+
+    def inspect_item_enriched(self, library_path: str) -> dict:
+        return self.inspect_item(library_path)
+
+    def remove_item(self, library_path: str) -> dict:
+        library_path = library_path.strip("/")
+        if library_path in self.remove_errors:
+            raise LibraryError(self.remove_errors[library_path])
+        item = self.inspect_item(library_path)
+        if item.get("is_dir"):
+            prefix = f"{library_path}/"
+            for path in list(self.entries):
+                if path.startswith(prefix):
+                    self.entries.pop(path)
+        else:
+            self.entries.pop(library_path, None)
+        self.removed.append(library_path)
+        return item
+
+    def add_item(
+        self,
+        local_file_path: str,
+        extra_metadata: dict | None = None,
+        target_dir: str | None = None,
+    ) -> dict:
         if self.add_error:
             raise LibraryError(self.add_error)
         source = Path(local_file_path)
-        item = {
-            "program_id": f"added-{len(self.items) + 1}",
-            "original_filename": source.name,
-            "extension": source.suffix.lstrip(".") or "unknown",
-            "stored_path": f"storage/programs/added-{len(self.items) + 1}/{source.name}",
-            "stored_file_exists": True,
-            "origin": "local",
-        }
+        target_dir = "" if target_dir is None else str(target_dir).strip("/")
+        if extra_metadata and extra_metadata.get("origin") == "robot_remote":
+            source_robot = str(extra_metadata.get("source_robot") or "").strip()
+            if source_robot:
+                source = source.with_name(f"{source_robot}_{source.name}")
+        library_path = f"{target_dir}/{source.name}" if target_dir else source.name
+        item = self._default_entry(library_path, is_dir=False)
         if extra_metadata:
             item.update(extra_metadata)
-        self.items.append(item)
-        return item
+        self.entries[library_path] = item
+        return dict(item)
 
-    def get_stored_filename(self, program_id: str) -> str:
-        item = self.inspect_item(program_id)
-        stored_path = item.get("stored_path")
-        if stored_path:
-            return Path(str(stored_path)).name
-        raise LibraryError(f"Library item has no stored filename: {program_id}")
+    def add_bundle(
+        self,
+        local_file_paths: list[str],
+        target_dir: str | None = None,
+        bundle_name: str | None = None,
+    ) -> dict:
+        if self.add_error:
+            raise LibraryError(self.add_error)
+        if not local_file_paths:
+            raise LibraryError("No local files were provided for bundle import.")
+        names = [Path(path).name for path in local_file_paths]
+        urp_names = [name for name in names if name.lower().endswith(".urp")]
+        if bundle_name:
+            bundle_dir_name = bundle_name
+        elif len(urp_names) == 1:
+            bundle_dir_name = Path(urp_names[0]).stem
+        else:
+            bundle_dir_name = Path(names[0]).stem
+        bundle_dir_name = self._sanitize_bundle_name(bundle_dir_name)
+        target_root = "" if target_dir is None else str(target_dir).strip("/")
+        bundle_path = f"{target_root}/{bundle_dir_name}" if target_root else bundle_dir_name
+        for local_file_path in local_file_paths:
+            filename = Path(local_file_path).name
+            if len(urp_names) == 1 and filename == urp_names[0]:
+                filename = normalize_runtime_safe_filename(filename)
+            item_path = f"{bundle_path}/{filename}"
+            self.entries[item_path] = self._default_entry(item_path, is_dir=False)
+        summary = self.inspect_bundle(bundle_path)
+        if len(urp_names) == 1:
+            original = urp_names[0]
+            safe = normalize_runtime_safe_filename(original)
+            if safe != original:
+                summary["primary_urp_was_normalized"] = True
+                summary["primary_urp_original_filename"] = original
+                summary["primary_urp_runtime_safe_filename"] = safe
+                summary["primary_urp_normalization_needed"] = False
+                summary["normalization_note"] = (
+                    "Primary .urp filename was normalized for runtime-safe dashboard load."
+                )
+        return summary
 
-    def ensure_script_item(self, program_id: str) -> dict:
-        item = self.inspect_item(program_id)
-        if str(item.get("extension", "")).lower() != "script":
-            raise LibraryError(f"Library item is not a .script program: {program_id}")
-        return item
+    def preview_bundle_import(
+        self,
+        upload_filenames: list[str],
+        target_dir: str | None = None,
+        bundle_name: str | None = None,
+    ) -> dict:
+        if self.add_error:
+            raise LibraryError(self.add_error)
+        if not upload_filenames:
+            raise LibraryError("No local files were provided for bundle import.")
+        names = [Path(name).name for name in upload_filenames]
+        urp_names = [name for name in names if name.lower().endswith(".urp")]
+        if bundle_name:
+            bundle_dir_name = bundle_name
+        elif len(urp_names) == 1:
+            bundle_dir_name = Path(urp_names[0]).stem
+        else:
+            bundle_dir_name = Path(names[0]).stem
+        bundle_dir_name = self._sanitize_bundle_name(bundle_dir_name)
+        target_root = "" if target_dir is None else str(target_dir).strip("/")
+        bundle_path = f"{target_root}/{bundle_dir_name}" if target_root else bundle_dir_name
 
-    def get_stored_file(self, program_id: str) -> Path:
-        item = self.inspect_item(program_id)
-        stored_path = item.get("stored_path")
-        if not stored_path:
-            raise LibraryError(f"Library item has no stored_path: {program_id}")
-        if item.get("stored_file_exists") is False:
-            raise LibraryError(f"Stored library file not found: {stored_path}")
-        path = Path(str(stored_path))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("payload", encoding="utf-8")
-        return path
+        grouped = {
+            "urp": [],
+            "installation": [],
+            "variables": [],
+            "script": [],
+            "text": [],
+            "other": [],
+        }
+        for name in names:
+            suffix = Path(name).suffix.lower()
+            if suffix == ".urp":
+                grouped["urp"].append(name)
+            elif suffix == ".installation":
+                grouped["installation"].append(name)
+            elif suffix == ".variables":
+                grouped["variables"].append(name)
+            elif suffix == ".script":
+                grouped["script"].append(name)
+            elif suffix == ".txt":
+                grouped["text"].append(name)
+            else:
+                grouped["other"].append(name)
 
-    def inspect_item_enriched(self, program_id: str) -> dict:
-        item = dict(self.inspect_item(program_id))
-        if str(item.get("extension", "")).lower() == "urp":
-            item["urp_analysis"] = self.urp_analysis_by_id.get(
-                program_id,
-                {"parse_success": False, "parse_error": "No test URP analysis configured"},
+        warnings: list[str] = []
+        primary_urp_rel = None
+        if len(grouped["urp"]) == 1:
+            primary_urp_rel = grouped["urp"][0]
+        elif len(grouped["urp"]) == 0:
+            warnings.append("No primary .urp file was found in this bundle.")
+        else:
+            warnings.append(
+                "Multiple .urp files were found in this bundle. Primary runtime file is ambiguous."
             )
+        if not grouped["installation"]:
+            warnings.append("No .installation file is present in this bundle.")
+        if not grouped["variables"]:
+            warnings.append("No .variables file is present in this bundle.")
+        primary_urp_filename = Path(primary_urp_rel).name if primary_urp_rel else None
+        primary_safe = (
+            normalize_runtime_safe_filename(primary_urp_filename)
+            if primary_urp_filename
+            else None
+        )
+        normalization_needed = bool(
+            primary_urp_filename and primary_safe and primary_safe != primary_urp_filename
+        )
+        if normalization_needed:
+            warnings.append(
+                "Primary .urp filename is not runtime-safe for dashboard load. Bundle import commit will normalize it by default."
+            )
+
+        if primary_urp_rel is None:
+            readiness_state = "invalid"
+        elif warnings:
+            readiness_state = "warning"
+        else:
+            readiness_state = "ready"
+
+        return {
+            "bundle_name": Path(bundle_path).name,
+            "bundle_directory_path": bundle_path,
+            "primary_urp_path": (
+                f"{bundle_path}/{primary_urp_rel}" if primary_urp_rel else None
+            ),
+            "primary_urp_filename": primary_urp_filename,
+            "primary_urp_original_filename": primary_urp_filename,
+            "primary_urp_runtime_safe_filename": primary_safe,
+            "primary_urp_normalization_needed": normalization_needed,
+            "primary_urp_was_normalized": False,
+            "files_by_type": grouped,
+            "installation_present": bool(grouped["installation"]),
+            "variables_present": bool(grouped["variables"]),
+            "script_present": bool(grouped["script"]),
+            "text_present": bool(grouped["text"]),
+            "readiness_state": readiness_state,
+            "warnings": warnings,
+            "file_count": len(names),
+            "runtime_name_warning": runtime_name_safety_warning(
+                f"{bundle_path}/{primary_urp_rel}" if primary_urp_rel else None
+            ),
+            "normalization_note": None,
+        }
+
+    def inspect_bundle(self, library_path: str) -> dict:
+        library_path = library_path.strip("/")
+        if library_path in self.bundle_errors:
+            raise LibraryError(self.bundle_errors[library_path])
+        prefix = f"{library_path}/"
+        files = [
+            path for path, entry in sorted(self.entries.items())
+            if path.startswith(prefix) and not entry.get("is_dir")
+        ]
+        if not files:
+            raise LibraryError(f"Library bundle not found: {library_path}")
+
+        grouped = {
+            "urp": [],
+            "installation": [],
+            "variables": [],
+            "script": [],
+            "text": [],
+            "other": [],
+        }
+        for path in files:
+            rel = path[len(prefix):]
+            suffix = Path(path).suffix.lower()
+            if suffix == ".urp":
+                grouped["urp"].append(rel)
+            elif suffix == ".installation":
+                grouped["installation"].append(rel)
+            elif suffix == ".variables":
+                grouped["variables"].append(rel)
+            elif suffix == ".script":
+                grouped["script"].append(rel)
+            elif suffix == ".txt":
+                grouped["text"].append(rel)
+            else:
+                grouped["other"].append(rel)
+
+        warnings: list[str] = []
+        primary_urp_rel = None
+        if len(grouped["urp"]) == 1:
+            primary_urp_rel = grouped["urp"][0]
+        elif len(grouped["urp"]) == 0:
+            warnings.append("No primary .urp file was found in this bundle.")
+        else:
+            warnings.append(
+                "Multiple .urp files were found in this bundle. Primary runtime file is ambiguous."
+            )
+        if not grouped["installation"]:
+            warnings.append("No .installation file is present in this bundle.")
+        if not grouped["variables"]:
+            warnings.append("No .variables file is present in this bundle.")
+        primary_urp_filename = Path(primary_urp_rel).name if primary_urp_rel else None
+        primary_safe = (
+            normalize_runtime_safe_filename(primary_urp_filename)
+            if primary_urp_filename
+            else None
+        )
+        normalization_needed = bool(
+            primary_urp_filename and primary_safe and primary_safe != primary_urp_filename
+        )
+        if normalization_needed:
+            warnings.append(
+                "Primary .urp filename is not runtime-safe for dashboard load. Bundle import commit will normalize it by default."
+            )
+
+        if primary_urp_rel is None:
+            readiness_state = "invalid"
+        elif warnings:
+            readiness_state = "warning"
+        else:
+            readiness_state = "ready"
+
+        return {
+            "bundle_name": Path(library_path).name,
+            "bundle_directory_path": library_path,
+            "primary_urp_path": (
+                f"{library_path}/{primary_urp_rel}" if primary_urp_rel else None
+            ),
+            "primary_urp_filename": primary_urp_filename,
+            "primary_urp_original_filename": primary_urp_filename,
+            "primary_urp_runtime_safe_filename": primary_safe,
+            "primary_urp_normalization_needed": normalization_needed,
+            "primary_urp_was_normalized": False,
+            "files_by_type": grouped,
+            "installation_present": bool(grouped["installation"]),
+            "variables_present": bool(grouped["variables"]),
+            "script_present": bool(grouped["script"]),
+            "text_present": bool(grouped["text"]),
+            "readiness_state": readiness_state,
+            "warnings": warnings,
+            "file_count": len(files),
+            "runtime_name_warning": runtime_name_safety_warning(
+                f"{library_path}/{primary_urp_rel}" if primary_urp_rel else None
+            ),
+            "normalization_note": None,
+        }
+
+    def prepare_runtime_safe_bundle_copy(self, path_ref: str) -> dict:
+        path_ref = path_ref.strip("/")
+        if path_ref in self.safe_copy_errors:
+            raise LibraryError(self.safe_copy_errors[path_ref])
+        summary = self.inspect_bundle(path_ref)
+        primary_path = str(summary.get("primary_urp_path") or "").strip()
+        if not primary_path:
+            raise LibraryError(
+                "Runtime-safe copy requires one deterministic primary .urp. Current bundle is missing or has ambiguous primary .urp."
+            )
+        source_prefix = f"{path_ref}/"
+        safe_bundle_name = f"{self._sanitize_bundle_name(Path(path_ref).name)}_safe"
+        safe_bundle_path = f"{Path(path_ref).parent.as_posix().strip('./')}/{safe_bundle_name}".strip("/")
+        if not safe_bundle_path:
+            safe_bundle_path = safe_bundle_name
+
+        original_primary_name = summary.get("primary_urp_filename")
+        runtime_safe_primary_name = normalize_runtime_safe_filename(original_primary_name or "main.urp")
+        primary_rel = Path(primary_path).relative_to(Path(path_ref)).as_posix()
+
+        for source_item_path, entry in list(self.entries.items()):
+            if not source_item_path.startswith(source_prefix):
+                continue
+            rel = source_item_path[len(source_prefix):]
+            rel_path = Path(rel)
+            target_name = rel_path.name
+            if rel == primary_rel:
+                target_name = runtime_safe_primary_name
+            target_rel = (Path(safe_bundle_path) / rel_path.parent / target_name).as_posix()
+            cloned = dict(entry)
+            cloned["program_id"] = target_rel
+            cloned["library_path"] = target_rel
+            cloned["relative_path"] = target_rel
+            cloned["name"] = target_name
+            cloned["original_filename"] = target_name
+            cloned["stored_path"] = str(self.storage.programs_root / target_rel)
+            if not cloned.get("is_dir"):
+                cloned["extension"] = Path(target_name).suffix.lstrip(".")
+            self.entries[target_rel] = cloned
+
+        safe_summary = self.inspect_bundle(safe_bundle_path)
+        safe_summary["source_bundle_path"] = path_ref
+        safe_summary["primary_urp_was_normalized"] = (
+            (original_primary_name or "") != runtime_safe_primary_name
+        )
+        safe_summary["primary_urp_original_filename"] = original_primary_name
+        safe_summary["primary_urp_runtime_safe_filename"] = runtime_safe_primary_name
+        safe_summary["normalization_note"] = "Created runtime-safe non-destructive bundle copy."
+        return safe_summary
+
+    def create_folder(self, relative_dir: str) -> dict:
+        if self.create_folder_error:
+            raise LibraryError(self.create_folder_error)
+        relative_dir = relative_dir.strip("/")
+        item = self._default_entry(relative_dir, is_dir=True)
         return item
 
-    def ensure_urp_item(self, program_id: str) -> dict:
-        item = self.inspect_item(program_id)
-        if str(item.get("extension", "")).lower() != "urp":
-            raise LibraryError(f"Library item is not a .urp program: {program_id}")
-        return item
+    def get_stored_file(self, library_path: str) -> Path:
+        library_path = library_path.strip("/")
+        if library_path in self.stored_file_errors:
+            raise LibraryError(self.stored_file_errors[library_path])
+        item = self.inspect_item(library_path)
+        if item.get("is_dir"):
+            raise LibraryError(f"Library path is a folder, not a file: {library_path}")
+        return Path(item["stored_path"])
 
-    def list_urp_editable_params(self, program_id: str) -> dict[str, str]:
-        self.ensure_urp_item(program_id)
-        if program_id in self.editable_param_errors:
-            raise LibraryError(self.editable_param_errors[program_id])
-        return dict(self.editable_params.get(program_id, {}))
+    def move_item(self, source_rel: str, destination_rel: str) -> dict:
+        key = (source_rel, destination_rel)
+        if key in self.move_errors:
+            raise LibraryError(self.move_errors[key])
+        item = self.inspect_item(source_rel)
+        moved = dict(item)
+        moved["program_id"] = destination_rel
+        moved["library_path"] = destination_rel
+        moved["relative_path"] = destination_rel
+        moved["name"] = Path(destination_rel).name
+        moved["original_filename"] = Path(destination_rel).name
+        moved["stored_path"] = str(self.storage.programs_root / destination_rel)
+        if not moved.get("is_dir"):
+            moved["extension"] = Path(destination_rel).suffix.lstrip(".")
+        if item.get("is_dir"):
+            prefix = f"{source_rel}/"
+            for path in list(self.entries):
+                if path.startswith(prefix):
+                    child = self.entries.pop(path)
+                    new_child_path = path.replace(prefix, f"{destination_rel}/", 1)
+                    child["program_id"] = new_child_path
+                    child["library_path"] = new_child_path
+                    child["relative_path"] = new_child_path
+                    child["stored_path"] = str(self.storage.programs_root / new_child_path)
+                    self.entries[new_child_path] = child
+        else:
+            self.entries.pop(source_rel, None)
+            self.entries[destination_rel] = moved
+        return moved
 
-    def set_urp_param(self, program_id: str, param_name: str, value: str) -> dict[str, str]:
-        self.ensure_urp_item(program_id)
-        key = (program_id, param_name)
-        if key in self.set_param_errors:
-            raise LibraryError(self.set_param_errors[key])
-        params = self.editable_params.setdefault(program_id, {})
-        if param_name not in params:
-            raise LibraryError(f"Editable URP param not found: {param_name}")
-        params[param_name] = value
-        return dict(params)
+    def copy_item(self, source_rel: str, destination_rel: str) -> dict:
+        key = (source_rel, destination_rel)
+        if key in self.copy_errors:
+            raise LibraryError(self.copy_errors[key])
+        item = self.inspect_item(source_rel)
+        copied = dict(item)
+        copied["program_id"] = destination_rel
+        copied["library_path"] = destination_rel
+        copied["relative_path"] = destination_rel
+        copied["name"] = Path(destination_rel).name
+        copied["original_filename"] = Path(destination_rel).name
+        copied["stored_path"] = str(self.storage.programs_root / destination_rel)
+        if not copied.get("is_dir"):
+            copied["extension"] = Path(destination_rel).suffix.lstrip(".")
+            self.entries[destination_rel] = copied
+        return copied
 
 
 class FakeCompatibilityService:
@@ -207,13 +751,216 @@ def test_health_endpoint_returns_ok() -> None:
 
 
 def test_homepage_renders_foundation_placeholders() -> None:
-    response = client.get("/")
+    response = client.get("/", follow_redirects=True)
 
     assert response.status_code == 200
     assert "UR Arms Manager" in response.text
     assert "Phase 1 GUI Foundation" in response.text
-    assert "Robots" in response.text
-    assert "Library" in response.text
+    assert "Fleet Overview" in response.text
+    assert "Jump to workspace" in response.text or "No robots are configured." in response.text
+
+
+def test_transfer_page_renders_bundle_first_sources() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo_bundle/main.urp": _make_library_file("uploaded/demo_bundle/main.urp"),
+        "uploaded/demo_bundle/main.installation": _make_library_file(
+            "uploaded/demo_bundle/main.installation", extension="installation"
+        ),
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+    }
+    FakeLibraryManager.bundle_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.get("/transfer")
+
+    assert response.status_code == 200
+    assert "Guided bundle-first transfer." in response.text
+    assert "[Bundle] uploaded/demo_bundle" in response.text
+    assert "[File] uploaded/demo.script" in response.text
+
+
+def test_transfer_page_renders_remote_robot_storage_browser_for_selected_robot(tmp_path: Path) -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo_bundle/main.urp": _make_library_file("uploaded/demo_bundle/main.urp"),
+    }
+    FakeLibraryManager.bundle_errors = {}
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/ursim/programs.UR5"): [
+            {"name": "programs", "is_dir": True, "kind": "directory"},
+            {"name": "manual.txt", "is_dir": False, "kind": "file"},
+        ]
+    }
+    gui_client = TestClient(
+        create_app(
+            config_path=config_path,
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.get("/transfer?source_path=uploaded/demo_bundle&robot_name=robot1")
+
+    assert response.status_code == 200
+    assert "Remote Robot Storage Browser" in response.text
+    assert "/ursim/programs.UR5" in response.text
+    assert "Use as Destination Parent" in response.text
+
+
+def test_transfer_page_shows_predicted_assign_target_for_selected_bundle() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo_bundle/main.urp": _make_library_file("uploaded/demo_bundle/main.urp"),
+        "uploaded/demo_bundle/main.installation": _make_library_file(
+            "uploaded/demo_bundle/main.installation", extension="installation"
+        ),
+        "uploaded/demo_bundle/main.variables": _make_library_file(
+            "uploaded/demo_bundle/main.variables", extension="variables"
+        ),
+    }
+    FakeLibraryManager.bundle_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.get(
+        "/transfer?source_path=uploaded/demo_bundle&robot_name=robot1&remote_dir=/programs/jobs"
+    )
+
+    assert response.status_code == 200
+    assert "Predicted assign target after deploy" in response.text
+    assert "/programs/jobs/demo_bundle/main.urp" in response.text
+
+
+def test_transfer_page_shows_runtime_filename_warning_for_space_in_primary_urp(
+    tmp_path: Path,
+) -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo_bundle/main file.urp": _make_library_file("uploaded/demo_bundle/main file.urp"),
+        "uploaded/demo_bundle/main.installation": _make_library_file(
+            "uploaded/demo_bundle/main.installation", extension="installation"
+        ),
+        "uploaded/demo_bundle/main.variables": _make_library_file(
+            "uploaded/demo_bundle/main.variables", extension="variables"
+        ),
+    }
+    FakeLibraryManager.bundle_errors = {}
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {("robot1", "/ursim/programs.UR5"): []}
+    FakeRobotManager.remote_dir_errors = {}
+    gui_client = TestClient(
+        create_app(
+            config_path=config_path,
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.get("/transfer?source_path=uploaded/demo_bundle&robot_name=robot1")
+
+    assert response.status_code == 200
+    assert "Runtime warning: filename contains spaces or unsafe characters." in response.text
+
+
+def test_transfer_page_marks_ordinary_folder_as_non_deployable() -> None:
+    FakeLibraryManager.entries = {
+        "robot1/readme.txt": _make_library_file("robot1/readme.txt", extension="txt"),
+    }
+    FakeLibraryManager.bundle_errors = {}
+    FakeLibraryManager.safe_copy_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.get("/transfer?source_path=robot1")
+
+    assert response.status_code == 200
+    assert "[Folder] robot1" in response.text
+    assert "Deploy is blocked for selected source." in response.text
+
+
+def test_transfer_page_shows_nested_bundle_destination_warning(tmp_path: Path) -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo_bundle/main.urp": _make_library_file("uploaded/demo_bundle/main.urp"),
+        "uploaded/demo_bundle/main.installation": _make_library_file(
+            "uploaded/demo_bundle/main.installation", extension="installation"
+        ),
+        "uploaded/demo_bundle/main.variables": _make_library_file(
+            "uploaded/demo_bundle/main.variables", extension="variables"
+        ),
+    }
+    FakeLibraryManager.bundle_errors = {}
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/ursim/programs.UR5/demo_bundle"): [],
+    }
+    gui_client = TestClient(
+        create_app(
+            config_path=config_path,
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.get(
+        "/transfer?source_path=uploaded/demo_bundle&robot_name=robot1&remote_dir=/ursim/programs.UR5/demo_bundle"
+    )
+
+    assert response.status_code == 200
+    assert "nested path" in response.text.lower()
+    assert "/ursim/programs.UR5/demo_bundle/demo_bundle" in response.text
 
 
 def test_robots_page_renders_configured_robots(tmp_path: Path) -> None:
@@ -226,7 +973,7 @@ robots:
     dashboard_port: 29991
     script_port: 30021
     enabled: true
-    assigned_program: programs/demo_a.urp
+    assigned_program: /programs/demo_a.urp
   robot2:
     host: 192.168.0.20
     dashboard_port: 29992
@@ -243,7 +990,7 @@ robots:
             robotmode="RUNNING",
             program_running="PLAYING",
             safety_status="NORMAL",
-            assigned_program="programs/demo_a.urp",
+            assigned_program="/programs/demo_a.urp",
         ),
         "robot2": RobotStatus(
             name="robot2",
@@ -264,7 +1011,7 @@ robots:
     assert "29991" in response.text
     assert "30021" in response.text
     assert "Enabled" in response.text
-    assert "programs/demo_a.urp" in response.text
+    assert "/programs/demo_a.urp" in response.text
     assert "robot2" in response.text
     assert "Disabled" in response.text
     assert "None assigned" in response.text
@@ -311,7 +1058,7 @@ robots:
     dashboard_port: 29991
     script_port: 30021
     enabled: true
-    assigned_program: programs/demo_a.urp
+    assigned_program: /programs/demo_a.urp
 """.strip(),
         encoding="utf-8",
     )
@@ -322,7 +1069,7 @@ robots:
             robotmode="IDLE",
             program_running="STOPPED",
             safety_status="NORMAL",
-            assigned_program="programs/demo_a.urp",
+            assigned_program="/programs/demo_a.urp",
         )
     }
     phase_3_client = TestClient(
@@ -351,7 +1098,7 @@ robots:
     script_port: 30021
     ssh_port: 2222
     enabled: true
-    assigned_program: programs/demo_a.urp
+    assigned_program: /programs/demo_a.urp
 """.strip(),
         encoding="utf-8",
     )
@@ -362,7 +1109,7 @@ robots:
             robotmode="RUNNING",
             program_running="PLAYING",
             safety_status="NORMAL",
-            assigned_program="programs/demo_a.urp",
+            assigned_program="/programs/demo_a.urp",
         )
     }
     gui_client = TestClient(
@@ -376,7 +1123,9 @@ robots:
     assert payload["ok"] is True
     assert payload["robot"]["name"] == "robot1"
     assert payload["robot"]["status"]["connected"] is True
-    assert payload["robot"]["assigned_program"] == "programs/demo_a.urp"
+    assert payload["robot"]["assigned_program"] == "/programs/demo_a.urp"
+    assert payload["robot"]["assignment_kind_label"] == "Remote Runtime Path"
+    assert payload["robot"]["runtime_validation"]["derived_load_argument"] == "programs/demo_a.urp"
 
 
 def test_robot_status_endpoint_returns_config_error_payload(tmp_path: Path) -> None:
@@ -394,25 +1143,16 @@ def test_robot_status_endpoint_returns_config_error_payload(tmp_path: Path) -> N
 
 
 def test_system_page_renders_diagnostics_summary(tmp_path: Path) -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-script-1",
-            "original_filename": "demo.script",
-            "extension": "script",
-            "stored_path": str(tmp_path / "storage" / "programs" / "demo-script-1" / "demo.script"),
-            "stored_file_exists": True,
-        },
-        {
-            "program_id": "stale-urp-1",
-            "original_filename": "stale.urp",
-            "extension": "urp",
-            "stored_path": str(tmp_path / "storage" / "programs" / "stale-urp-1" / "stale.urp"),
-            "stored_file_exists": False,
-        },
-    ]
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+        "uploaded/stale.urp": _make_library_file("uploaded/stale.urp"),
+    }
     FakeLibraryManager.inspect_errors = {}
     FakeLibraryManager.remove_errors = {}
     FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(
         """
@@ -423,7 +1163,7 @@ robots:
     script_port: 30021
     ssh_port: 2222
     enabled: true
-    assigned_program: programs/demo_a.urp
+    assigned_program: /programs/demo_a.urp
   robot2:
     host: 127.0.0.1
     dashboard_port: 29991
@@ -453,15 +1193,18 @@ robots:
     assert "Disabled" in response.text
     assert "Duplicate dashboard endpoint 127.0.0.1:29991 is shared by: robot1, robot2" in response.text
     assert "Robot is disabled in config." in response.text
-    assert "Stale Library Items" in response.text
-    assert ">1<" in response.text
+    assert "Library Items" in response.text
+    assert ">2<" in response.text
 
 
 def test_system_page_renders_config_error_state(tmp_path: Path) -> None:
-    FakeLibraryManager.items = []
+    FakeLibraryManager.entries = {}
     FakeLibraryManager.inspect_errors = {}
     FakeLibraryManager.remove_errors = {}
     FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
     missing_path = tmp_path / "missing.yaml"
     gui_client = TestClient(
         create_app(
@@ -488,7 +1231,7 @@ robots:
     dashboard_port: 29991
     script_port: 30021
     enabled: true
-    assigned_program: programs/demo_a.urp
+    assigned_program: /programs/demo_a.urp
   robot2:
     host: 192.168.0.20
     dashboard_port: 29992
@@ -517,6 +1260,8 @@ robots:
     assert "Stop" in response.text
     assert "Actions" in response.text
     assert "disabled" in response.text
+    assert "Assigned Runtime Path" in response.text
+    assert "Remote Runtime Path" in response.text
 
 
 def test_robot_workspace_page_renders_robot_specific_view(tmp_path: Path) -> None:
@@ -530,7 +1275,7 @@ robots:
     script_port: 30021
     ssh_port: 2222
     enabled: true
-    assigned_program: programs/demo_a.urp
+    assigned_program: /programs/demo_a.urp
 """.strip(),
         encoding="utf-8",
     )
@@ -541,23 +1286,26 @@ robots:
             robotmode="RUNNING",
             program_running="PLAYING",
             safety_status="NORMAL",
-            assigned_program="programs/demo_a.urp",
+            assigned_program="/programs/demo_a.urp",
             monitoring_source="rtde",
         )
     }
-    FakeRobotManager.remote_dirs = {
-        ("robot1", "/programs"): ["jobs", "demo.urp"],
-        ("robot1", "/programs/jobs"): ["nested.script"],
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/programs"): [
+            {"name": "jobs", "is_dir": True, "kind": "directory"},
+            {"name": "demo.urp", "is_dir": False, "kind": "file"},
+        ],
+        ("robot1", "/programs/jobs"): [
+            {"name": "nested.script", "is_dir": False, "kind": "file"},
+        ],
     }
-    FakeRobotManager.remote_dir_errors = {
-        ("robot1", "/programs/demo.urp"): "not a directory",
-        ("robot1", "/programs/jobs/nested.script"): "not a directory",
-    }
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
     gui_client = TestClient(
         create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
     )
 
-    response = gui_client.get("/robots/robot1")
+    response = gui_client.get("/robots/robot1?remote_dir=/programs&selected_remote_path=/programs/demo.urp")
 
     assert response.status_code == 200
     assert "Robot workspace for robot1." in response.text
@@ -565,18 +1313,58 @@ robots:
     assert "29991" in response.text
     assert "30021" in response.text
     assert "2222" in response.text
-    assert "programs/demo_a.urp" in response.text
+    assert "/programs/demo_a.urp" in response.text
     assert "RUNNING" in response.text
     assert "PLAYING" in response.text
     assert "NORMAL" in response.text
     assert "rtde" in response.text
     assert "Power On" in response.text
     assert "Back to robot overview" in response.text
-    assert "SSH/SFTP file browser" in response.text
+    assert "Remote file manager" in response.text
     assert "/programs" in response.text
     assert "demo.urp" in response.text
     assert "jobs" in response.text
-    assert "Import Selected File to Library" in response.text
+    assert "Create Remote Folder" in response.text
+    assert "Assigned Runtime Path" in response.text
+    assert "Load Context" in response.text
+    assert "Derived Dashboard Load Argument" in response.text
+    assert "programs/demo_a.urp" in response.text
+    assert "Assign Selected File for Load" in response.text
+
+
+def test_robot_workspace_defaults_to_current_remote_root_profile(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/ursim/programs.UR5"): [
+            {"name": "programs", "is_dir": True, "kind": "directory"},
+        ]
+    }
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.get("/robots/robot1")
+
+    assert response.status_code == 200
+    assert "/ursim/programs.UR5" in response.text
+    assert "Current URSim remote root profile" in response.text
+    assert "programs" in response.text
 
 
 def test_robot_workspace_page_renders_unknown_robot_error(tmp_path: Path) -> None:
@@ -610,10 +1398,11 @@ robots:
     FakeRobotManager.statuses = {
         "robot1": RobotStatus(name="robot1", connected=True),
     }
-    FakeRobotManager.remote_dirs = {}
+    FakeRobotManager.remote_entries = {}
     FakeRobotManager.remote_dir_errors = {
-        ("robot1", "/programs"): "permission denied",
+        ("robot1", "/ursim/programs.UR5"): "permission denied",
     }
+    FakeRobotManager.remote_file_action_errors = {}
     gui_client = TestClient(
         create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
     )
@@ -627,10 +1416,14 @@ robots:
 
 
 def test_robot_workspace_import_remote_file_redirects_to_library(tmp_path: Path) -> None:
-    FakeLibraryManager.items = []
+    FakeLibraryManager.entries = {}
     FakeLibraryManager.inspect_errors = {}
     FakeLibraryManager.remove_errors = {}
     FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.stored_file_errors = {}
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(
         """
@@ -648,12 +1441,13 @@ robots:
     FakeRobotManager.statuses = {
         "robot1": RobotStatus(name="robot1", connected=True),
     }
-    FakeRobotManager.remote_dirs = {
-        ("robot1", "/programs"): ["demo.urp"],
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/programs"): [
+            {"name": "demo.urp", "is_dir": False, "kind": "file"},
+        ],
     }
-    FakeRobotManager.remote_dir_errors = {
-        ("robot1", "/programs/demo.urp"): "not a directory",
-    }
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
     gui_client = TestClient(
         create_app(
             config_path=config_path,
@@ -669,8 +1463,577 @@ robots:
     )
 
     assert response.status_code == 200
-    assert "Imported from robot &#39;robot1&#39;: added-1" in response.text
-    assert "/programs/demo.urp" in response.text
+    assert "Imported from robot &#39;robot1&#39;: /programs/demo.urp -&gt; robot1_demo.urp" in response.text
+    assert "robot1_demo.urp" in response.text
+
+
+def test_robot_workspace_page_renders_empty_directory_state(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {("robot1", "/ursim/programs.UR5"): []}
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.get("/robots/robot1")
+
+    assert response.status_code == 200
+    assert "/ursim/programs.UR5" in response.text
+    assert "This remote directory is empty." in response.text
+
+
+def test_robot_workspace_page_supports_folder_selection(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/programs"): [
+            {"name": "jobs", "is_dir": True, "kind": "directory"},
+        ]
+    }
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.get("/robots/robot1?remote_dir=/programs&selected_remote_path=/programs/jobs")
+
+    assert response.status_code == 200
+    assert "Selected Remote Path" in response.text
+    assert "/programs/jobs" in response.text
+    assert "Import to Library is only available for files." in response.text
+
+
+def test_robot_workspace_assign_remote_file_redirects_with_success_feedback(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/programs"): [
+            {"name": "demo.urp", "is_dir": False, "kind": "file"},
+        ]
+    }
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/assign-remote-file",
+        data={
+            "remote_dir": "/programs",
+            "remote_path": "/programs/demo.urp",
+            "item_kind": "file",
+            "item_extension": "urp",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Assigned runtime path for robot &#39;robot1&#39;: /programs/demo.urp" in response.text
+    assert "Remote Runtime Path" in response.text
+
+
+def test_robot_workspace_assign_remote_file_rejects_directory(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/assign-remote-file",
+        data={
+            "remote_dir": "/programs",
+            "remote_path": "/programs/jobs",
+            "item_kind": "directory",
+            "item_extension": "",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Assign remote path failed: folders cannot be used for Load." in response.text
+
+
+def test_robot_workspace_assign_remote_file_rejects_script_file(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/assign-remote-file",
+        data={
+            "remote_dir": "/programs",
+            "remote_path": "/programs/demo.script",
+            "item_kind": "file",
+            "item_extension": "script",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert ".script files use direct Run Script" in response.text
+
+
+def test_robot_workspace_run_remote_script_redirects_with_success_feedback(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: /programs/demo.urp
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/programs"): [
+            {"name": "demo.script", "is_dir": False, "kind": "file"},
+        ]
+    }
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/run-remote-script",
+        data={"remote_dir": "/programs", "remote_path": "/programs/demo.script"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Direct script run succeeded" in response.text
+    assert "Last script run" in response.text
+
+
+def test_robot_workspace_create_folder_redirects_with_success_feedback(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {("robot1", "/programs"): []}
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
+    FakeRobotManager.calls = []
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/files/create-folder",
+        data={"remote_dir": "/programs", "folder_name": "jobs"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Created remote folder: /programs/jobs" in response.text
+    assert ("create-folder", "/programs/jobs") in FakeRobotManager.calls
+
+
+def test_robot_workspace_create_folder_works_from_ursim_profile_root(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {("robot1", "/ursim/programs.UR5"): []}
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
+    FakeRobotManager.calls = []
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/files/create-folder",
+        data={"remote_dir": "/ursim/programs.UR5", "folder_name": "jobs"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Created remote folder: /ursim/programs.UR5/jobs" in response.text
+    assert ("create-folder", "/ursim/programs.UR5/jobs") in FakeRobotManager.calls
+
+
+def test_robot_workspace_create_folder_rejects_path_traversal_name(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {("robot1", "/ursim/programs.UR5"): []}
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
+    FakeRobotManager.calls = []
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/files/create-folder",
+        data={"remote_dir": "/ursim/programs.UR5", "folder_name": "../escape"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Create folder failed: folder name must be one safe directory name." in response.text
+    assert ("create-folder", "/ursim/programs.UR5/../escape") not in FakeRobotManager.calls
+
+
+def test_robot_workspace_create_folder_redirects_with_error_feedback(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {("robot1", "/programs"): []}
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {
+        ("robot1", "create-folder", "/programs/jobs"): "permission denied"
+    }
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/files/create-folder",
+        data={"remote_dir": "/programs", "folder_name": "jobs"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Create folder failed: permission denied" in response.text
+
+
+def test_robot_workspace_remove_redirects_with_success_feedback(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/programs"): [
+            {"name": "demo.urp", "is_dir": False, "kind": "file"},
+        ]
+    }
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
+    FakeRobotManager.calls = []
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/files/remove",
+        data={
+            "remote_dir": "/programs",
+            "remote_path": "/programs/demo.urp",
+            "item_kind": "file",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Removed remote path: /programs/demo.urp" in response.text
+    assert ("remove-file", "/programs/demo.urp") in FakeRobotManager.calls
+
+
+def test_robot_workspace_move_redirects_with_success_feedback(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/programs"): [
+            {"name": "demo.urp", "is_dir": False, "kind": "file"},
+        ]
+    }
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
+    FakeRobotManager.calls = []
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/files/move",
+        data={
+            "remote_dir": "/programs",
+            "source_path": "/programs/demo.urp",
+            "destination_path": "/programs/archive/demo.urp",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Moved remote path to: /programs/archive/demo.urp" in response.text
+    assert ("move", "/programs/demo.urp->/programs/archive/demo.urp") in FakeRobotManager.calls
+
+
+def test_robot_workspace_move_redirects_with_error_feedback(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/programs"): [
+            {"name": "demo.urp", "is_dir": False, "kind": "file"},
+        ]
+    }
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {
+        ("robot1", "move", "/programs/demo.urp"): "rename blocked"
+    }
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/files/move",
+        data={
+            "remote_dir": "/programs",
+            "source_path": "/programs/demo.urp",
+            "destination_path": "/programs/archive/demo.urp",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Move failed: rename blocked" in response.text
+
+
+def test_robot_workspace_copy_redirects_with_success_feedback(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/programs"): [
+            {"name": "demo.script", "is_dir": False, "kind": "file"},
+        ]
+    }
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
+    FakeRobotManager.calls = []
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/files/copy",
+        data={
+            "remote_dir": "/programs",
+            "source_path": "/programs/demo.script",
+            "destination_path": "/programs/demo_copy.script",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Copied remote file to: /programs/demo_copy.script" in response.text
+    assert ("copy", "/programs/demo.script->/programs/demo_copy.script") in FakeRobotManager.calls
+
+
+def test_robot_workspace_copy_redirects_with_error_feedback(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/programs"): [
+            {"name": "demo.script", "is_dir": False, "kind": "file"},
+        ]
+    }
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {
+        ("robot1", "copy", "/programs/demo.script"): "copy blocked"
+    }
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/files/copy",
+        data={
+            "remote_dir": "/programs",
+            "source_path": "/programs/demo.script",
+            "destination_path": "/programs/demo_copy.script",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Copy failed: copy blocked" in response.text
 
 
 def test_robots_page_shows_disabled_robot_action_reason(tmp_path: Path) -> None:
@@ -710,7 +2073,7 @@ robots:
     dashboard_port: 29991
     script_port: 30021
     enabled: true
-    assigned_program: programs/demo_a.urp
+    assigned_program: /programs/demo_a.urp
 """.strip(),
         encoding="utf-8",
     )
@@ -747,7 +2110,7 @@ robots:
     dashboard_port: 29991
     script_port: 30021
     enabled: true
-    assigned_program: programs/demo_a.urp
+    assigned_program: /programs/demo_a.urp
 """.strip(),
         encoding="utf-8",
     )
@@ -773,6 +2136,78 @@ robots:
     assert "file not found" in payload["message"]
 
 
+def test_robot_action_play_is_blocked_after_failed_load_validation(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    enabled: true
+    assigned_program: /programs/demo_a.urp
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.calls = []
+    FakeRobotManager.action_results = {
+        ("robot1", "play"): "Starting program",
+    }
+    FakeRobotManager.action_errors = {
+        ("robot1", "load"): "could not understand: 'load programs/demo_a.urp'",
+    }
+    FakeRobotManager.statuses = {
+        "robot1": RobotStatus(name="robot1", connected=True),
+    }
+    phase_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    load_response = phase_client.post("/api/robots/robot1/actions/load")
+    assert load_response.status_code == 400
+
+    play_response = phase_client.post("/api/robots/robot1/actions/play")
+    assert play_response.status_code == 400
+    payload = play_response.json()
+    assert payload["ok"] is False
+    assert "Play blocked" in payload["message"]
+    assert "parser_error" in payload["message"]
+
+
+def test_robot_action_load_is_blocked_for_unsafe_runtime_argument(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    enabled: true
+    assigned_program: /ursim/programs.UR5/jobs/my program.urp
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.calls = []
+    FakeRobotManager.action_results = {}
+    FakeRobotManager.action_errors = {}
+    FakeRobotManager.statuses = {
+        "robot1": RobotStatus(name="robot1", connected=True),
+    }
+    phase_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = phase_client.post("/api/robots/robot1/actions/load")
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["runtime_validation"]["outcome"] == "unsafe_runtime_path"
+    assert "runtime-safe bundle first" in payload["message"]
+
+
 def test_robot_action_endpoint_returns_not_found_for_unknown_robot(tmp_path: Path) -> None:
     config_path = tmp_path / "robots.yaml"
     config_path.write_text("robots: {}\n", encoding="utf-8")
@@ -785,30 +2220,37 @@ def test_robot_action_endpoint_returns_not_found_for_unknown_robot(tmp_path: Pat
     assert response.status_code == 404
 
 
-def test_library_page_renders_items_and_selected_detail(tmp_path: Path) -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-script-1",
-            "original_filename": "demo.script",
-            "extension": "script",
-            "stored_path": str(tmp_path / "storage" / "programs" / "demo-script-1" / "demo.script"),
-            "origin": "local",
-            "created_at": "2026-04-16T10:00:00Z",
-        },
-        {
-            "program_id": "demo-urp-1",
-            "original_filename": "robot_job.urp",
-            "extension": "urp",
-            "stored_path": str(tmp_path / "storage" / "programs" / "demo-urp-1" / "robot_job.urp"),
-            "origin": "robot_remote",
-            "source_robot": "robot1",
-            "source_remote_path": "/programs/robot_job.urp",
-        },
-    ]
+def _make_library_file(path: str, extension: str | None = None) -> dict:
+    path_obj = Path(path)
+    ext = extension if extension is not None else path_obj.suffix.lstrip(".")
+    return {
+        "program_id": path,
+        "library_path": path,
+        "relative_path": path,
+        "name": path_obj.name,
+        "original_filename": path_obj.name,
+        "extension": ext,
+        "item_kind": "file",
+        "is_dir": False,
+        "stored_path": f"storage/library/{path}",
+        "origin": "robot_remote" if path.startswith("robot") else "local",
+    }
+
+
+def test_library_page_renders_filesystem_browser_and_selected_file() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+        "robot1/robot1_test1.urp": _make_library_file("robot1/robot1_test1.urp"),
+    }
+    FakeLibraryManager.list_errors = {}
     FakeLibraryManager.inspect_errors = {}
     FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.stored_file_errors = {}
     FakeLibraryManager.removed = []
-    FakeLibraryManager.add_error = None
     gui_client = TestClient(
         create_app(
             library_manager_factory=FakeLibraryManager,
@@ -816,24 +2258,27 @@ def test_library_page_renders_items_and_selected_detail(tmp_path: Path) -> None:
         )
     )
 
-    response = gui_client.get("/library?selected=demo-urp-1")
+    response = gui_client.get("/library?dir=uploaded&selected=uploaded/demo.script")
 
     assert response.status_code == 200
-    assert "Managed program library." in response.text
-    assert "demo.script" in response.text
-    assert "robot_job.urp" in response.text
-    assert "robot_remote" in response.text
-    assert "/programs/robot_job.urp" in response.text
-    assert ".script" in response.text
-    assert ".urp" in response.text
-    assert "Remove Item" in response.text
+    assert "Local library workspace." in response.text
+    assert "uploaded/demo.script" in response.text
+    assert "Upload Here" in response.text
+    assert "Create Folder" in response.text
+    assert "Move Selected Path" in response.text
+    assert "Copy Selected Path" in response.text
+    assert "Send to Robot Storage" in response.text
 
 
-def test_library_page_renders_empty_state() -> None:
-    FakeLibraryManager.items = []
+def test_library_page_renders_empty_folder_state() -> None:
+    FakeLibraryManager.entries = {}
+    FakeLibraryManager.list_errors = {}
     FakeLibraryManager.inspect_errors = {}
     FakeLibraryManager.remove_errors = {}
     FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
     gui_client = TestClient(
         create_app(
             library_manager_factory=FakeLibraryManager,
@@ -841,46 +2286,23 @@ def test_library_page_renders_empty_state() -> None:
         )
     )
 
-    response = gui_client.get("/library")
+    response = gui_client.get("/library?dir=uploaded")
 
     assert response.status_code == 200
-    assert "Library is empty." in response.text
+    assert "This folder is empty." in response.text
 
 
-def test_library_page_tolerates_malformed_item_metadata() -> None:
-    FakeLibraryManager.items = [
-        {"program_id": "broken-item"},
-    ]
-    FakeLibraryManager.inspect_errors = {"broken-item": "manifest parse failed"}
-    FakeLibraryManager.remove_errors = {}
-    FakeLibraryManager.add_error = None
-    gui_client = TestClient(
-        create_app(
-            library_manager_factory=FakeLibraryManager,
-            robot_manager_factory=FakeRobotManager,
-        )
-    )
-
-    response = gui_client.get("/library?selected=broken-item")
-
-    assert response.status_code == 200
-    assert "Unknown file" in response.text
-    assert "manifest parse failed" in response.text
-
-
-def test_library_page_shows_missing_stored_file_warning() -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "stale-script-1",
-            "original_filename": "stale.script",
-            "extension": "script",
-            "stored_path": "storage/programs/stale-script-1/stale.script",
-            "stored_file_exists": False,
-        }
-    ]
+def test_library_page_supports_folder_navigation() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/jobs/demo.urp": _make_library_file("uploaded/jobs/demo.urp"),
+    }
+    FakeLibraryManager.list_errors = {}
     FakeLibraryManager.inspect_errors = {}
     FakeLibraryManager.remove_errors = {}
     FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
     gui_client = TestClient(
         create_app(
             library_manager_factory=FakeLibraryManager,
@@ -888,66 +2310,24 @@ def test_library_page_shows_missing_stored_file_warning() -> None:
         )
     )
 
-    response = gui_client.get("/library?selected=stale-script-1")
+    response = gui_client.get("/library?dir=uploaded")
 
     assert response.status_code == 200
-    assert "Stored file is missing from library storage." in response.text
-    assert "Missing from library storage" in response.text
+    assert "uploaded/jobs" in response.text
+    assert "Open Folder" in response.text
 
 
-def test_library_page_disables_script_forms_when_no_script_items(tmp_path: Path) -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-urp-1",
-            "original_filename": "robot_job.urp",
-            "extension": "urp",
-            "stored_path": str(tmp_path / "storage" / "programs" / "demo-urp-1" / "robot_job.urp"),
-            "stored_file_exists": True,
-        }
-    ]
+def test_library_page_supports_folder_selection() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/jobs/demo.urp": _make_library_file("uploaded/jobs/demo.urp"),
+    }
+    FakeLibraryManager.list_errors = {}
     FakeLibraryManager.inspect_errors = {}
     FakeLibraryManager.remove_errors = {}
     FakeLibraryManager.add_error = None
-    config_path = tmp_path / "robots.yaml"
-    config_path.write_text(
-        """
-robots:
-  robot1:
-    host: 127.0.0.1
-    dashboard_port: 29991
-    script_port: 30021
-    enabled: true
-    assigned_program: null
-""".strip(),
-        encoding="utf-8",
-    )
-    gui_client = TestClient(
-        create_app(
-            config_path=config_path,
-            library_manager_factory=FakeLibraryManager,
-            robot_manager_factory=FakeRobotManager,
-        )
-    )
-
-    response = gui_client.get("/library?selected=demo-urp-1")
-
-    assert response.status_code == 200
-    assert "No `.script` items are currently available in the library." in response.text
-
-
-def test_library_remove_redirects_with_success_feedback() -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-script-1",
-            "original_filename": "demo.script",
-            "extension": "script",
-            "stored_path": "storage/programs/demo-script-1/demo.script",
-        }
-    ]
-    FakeLibraryManager.inspect_errors = {}
-    FakeLibraryManager.remove_errors = {}
-    FakeLibraryManager.removed = []
-    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
     gui_client = TestClient(
         create_app(
             library_manager_factory=FakeLibraryManager,
@@ -955,90 +2335,56 @@ def test_library_remove_redirects_with_success_feedback() -> None:
         )
     )
 
-    response = gui_client.post("/library/demo-script-1/remove", follow_redirects=True)
+    response = gui_client.get("/library?dir=uploaded&selected=uploaded/jobs")
 
     assert response.status_code == 200
-    assert "Removed library item: demo-script-1" in response.text
-    assert FakeLibraryManager.removed == ["demo-script-1"]
+    assert "uploaded/jobs" in response.text
+    assert "Folder" in response.text
+    assert "Remove Selected Path" in response.text
 
 
-def test_library_remove_redirects_with_error_feedback() -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-script-1",
-            "original_filename": "demo.script",
-            "extension": "script",
-            "stored_path": "storage/programs/demo-script-1/demo.script",
-        }
-    ]
-    FakeLibraryManager.inspect_errors = {}
-    FakeLibraryManager.remove_errors = {"demo-script-1": "remove blocked"}
-    FakeLibraryManager.removed = []
-    FakeLibraryManager.add_error = None
-    gui_client = TestClient(
-        create_app(
-            library_manager_factory=FakeLibraryManager,
-            robot_manager_factory=FakeRobotManager,
-        )
-    )
-
-    response = gui_client.post("/library/demo-script-1/remove", follow_redirects=True)
-
-    assert response.status_code == 200
-    assert "Remove failed: remove blocked" in response.text
-
-
-def test_library_page_renders_ingest_forms(tmp_path: Path) -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-script-1",
-            "original_filename": "demo.script",
-            "extension": "script",
-            "stored_path": "storage/programs/demo-script-1/demo.script",
-        }
-    ]
+def test_library_page_bundle_selection_shows_bundle_first_actions() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo_bundle/main.urp": _make_library_file("uploaded/demo_bundle/main.urp"),
+        "uploaded/demo_bundle/main.installation": _make_library_file(
+            "uploaded/demo_bundle/main.installation", extension="installation"
+        ),
+        "uploaded/demo_bundle/main.variables": _make_library_file(
+            "uploaded/demo_bundle/main.variables", extension="variables"
+        ),
+    }
+    FakeLibraryManager.list_errors = {}
     FakeLibraryManager.inspect_errors = {}
     FakeLibraryManager.remove_errors = {}
     FakeLibraryManager.add_error = None
-    config_path = tmp_path / "robots.yaml"
-    config_path.write_text(
-        """
-robots:
-  robot1:
-    host: 127.0.0.1
-    dashboard_port: 29991
-    script_port: 30021
-    enabled: true
-    assigned_program: null
-""".strip(),
-        encoding="utf-8",
-    )
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.bundle_errors = {}
     gui_client = TestClient(
         create_app(
-            config_path=config_path,
             library_manager_factory=FakeLibraryManager,
             robot_manager_factory=FakeRobotManager,
         )
     )
 
-    response = gui_client.get("/library")
+    response = gui_client.get("/library?dir=uploaded&selected=uploaded/demo_bundle")
 
     assert response.status_code == 200
-    assert "Upload Local File" in response.text
-    assert "Import Remote File" in response.text
-    assert "robot1 (127.0.0.1)" in response.text
-    assert "Assign Remote" in response.text
-    assert "Assign Library" in response.text
-    assert "Assign Script" in response.text
-    assert "Deploy" in response.text
-    assert "Run Script" in response.text
+    assert "Deployable UR Program Bundle" in response.text
+    assert "Deploy Bundle via Transfer" in response.text
+    assert "/transfer?source_path=uploaded/demo_bundle" in response.text
 
 
 def test_library_upload_redirects_with_success_feedback() -> None:
-    FakeLibraryManager.items = []
+    FakeLibraryManager.entries = {}
+    FakeLibraryManager.list_errors = {}
     FakeLibraryManager.inspect_errors = {}
     FakeLibraryManager.remove_errors = {}
     FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
     gui_client = TestClient(
         create_app(
             library_manager_factory=FakeLibraryManager,
@@ -1048,20 +2394,24 @@ def test_library_upload_redirects_with_success_feedback() -> None:
 
     response = gui_client.post(
         "/library/upload",
+        data={"current_dir": "uploaded/jobs"},
         files={"upload_file": ("demo.script", b"def demo():\nend\n", "text/plain")},
         follow_redirects=True,
     )
 
     assert response.status_code == 200
-    assert "Uploaded to library: added-1" in response.text
-    assert "demo.script" in response.text
+    assert "Uploaded to library: uploaded/jobs/demo.script" in response.text
 
 
-def test_library_upload_redirects_with_error_feedback() -> None:
-    FakeLibraryManager.items = []
+def test_library_upload_to_root_works_with_clean_library_root() -> None:
+    FakeLibraryManager.entries = {}
+    FakeLibraryManager.list_errors = {}
     FakeLibraryManager.inspect_errors = {}
     FakeLibraryManager.remove_errors = {}
-    FakeLibraryManager.add_error = "upload blocked"
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
     gui_client = TestClient(
         create_app(
             library_manager_factory=FakeLibraryManager,
@@ -1071,6 +2421,258 @@ def test_library_upload_redirects_with_error_feedback() -> None:
 
     response = gui_client.post(
         "/library/upload",
+        data={"current_dir": ""},
+        files={"upload_file": ("demo.script", b"def demo():\nend\n", "text/plain")},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Uploaded to library: demo.script" in response.text
+
+
+def test_library_upload_multiple_files_creates_bundle_and_shows_summary() -> None:
+    FakeLibraryManager.entries = {}
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.bundle_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/upload",
+        data={"current_dir": "uploaded/jobs"},
+        files=[
+            ("upload_file", ("demo.urp", b"<urp/>", "application/octet-stream")),
+            ("upload_file", ("demo.installation", b"install", "text/plain")),
+            ("upload_file", ("demo.variables", b"vars", "text/plain")),
+        ],
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Imported bundle: uploaded/jobs/demo" in response.text
+    assert "readiness: ready" in response.text
+    assert "Primary .urp" in response.text
+    assert "uploaded/jobs/demo/demo.urp" in response.text
+
+
+def test_library_upload_multiple_files_to_root_creates_bundle() -> None:
+    FakeLibraryManager.entries = {}
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.bundle_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/upload",
+        data={"current_dir": ""},
+        files=[
+            ("upload_file", ("demo.urp", b"<urp/>", "application/octet-stream")),
+            ("upload_file", ("demo.installation", b"install", "text/plain")),
+            ("upload_file", ("demo.variables", b"vars", "text/plain")),
+        ],
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Imported bundle: demo" in response.text
+    assert "demo/demo.urp" in response.text
+
+
+def test_library_bundle_import_stage_shows_preview_summary() -> None:
+    FakeLibraryManager.entries = {}
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.bundle_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/bundle-import/stage",
+        data={"current_dir": "uploaded/jobs"},
+        files=[
+            ("bundle_files", ("demo.urp", b"<urp/>", "application/octet-stream")),
+            ("bundle_files", ("demo.installation", b"install", "text/plain")),
+            ("bundle_files", ("demo.variables", b"vars", "text/plain")),
+        ],
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Bundle Import Preview" in response.text
+    assert "uploaded/jobs/demo" in response.text
+    assert "Confirm Bundle Import" in response.text
+    assert "uploaded/jobs/demo/demo.urp" in response.text
+
+
+def test_library_bundle_import_stage_shows_runtime_safe_primary_urp_plan() -> None:
+    FakeLibraryManager.entries = {}
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.bundle_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/bundle-import/stage",
+        data={"current_dir": "uploaded/jobs"},
+        files=[
+            ("bundle_files", ("my program.urp", b"<urp/>", "application/octet-stream")),
+            ("bundle_files", ("my program.installation", b"install", "text/plain")),
+            ("bundle_files", ("my program.variables", b"vars", "text/plain")),
+        ],
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Primary .urp (original)" in response.text
+    assert "my program.urp" in response.text
+    assert "Primary .urp (runtime-safe)" in response.text
+    assert "my_program.urp" in response.text
+    assert "Normalization needed" in response.text
+
+
+def test_library_bundle_import_commit_creates_bundle_and_redirects() -> None:
+    FakeLibraryManager.entries = {}
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.bundle_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    stage_response = gui_client.post(
+        "/library/bundle-import/stage",
+        data={"current_dir": "uploaded/jobs"},
+        files=[
+            ("bundle_files", ("demo.urp", b"<urp/>", "application/octet-stream")),
+            ("bundle_files", ("demo.installation", b"install", "text/plain")),
+            ("bundle_files", ("demo.variables", b"vars", "text/plain")),
+        ],
+        follow_redirects=True,
+    )
+    token_prefix = 'name="token" value="'
+    assert token_prefix in stage_response.text
+    token = stage_response.text.split(token_prefix, 1)[1].split('"', 1)[0]
+
+    commit_response = gui_client.post(
+        "/library/bundle-import/commit",
+        data={"token": token, "current_dir": "uploaded/jobs"},
+        follow_redirects=True,
+    )
+
+    assert commit_response.status_code == 200
+    assert "Imported bundle: uploaded/jobs/demo" in commit_response.text
+    assert "Primary .urp" in commit_response.text
+    assert "uploaded/jobs/demo/demo.urp" in commit_response.text
+
+
+def test_library_bundle_import_commit_reports_runtime_safe_rename_when_primary_was_unsafe() -> None:
+    FakeLibraryManager.entries = {}
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.bundle_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    stage_response = gui_client.post(
+        "/library/bundle-import/stage",
+        data={"current_dir": "uploaded/jobs"},
+        files=[
+            ("bundle_files", ("my program.urp", b"<urp/>", "application/octet-stream")),
+            ("bundle_files", ("my program.installation", b"install", "text/plain")),
+            ("bundle_files", ("my program.variables", b"vars", "text/plain")),
+        ],
+        follow_redirects=True,
+    )
+    token_prefix = 'name="token" value="'
+    token = stage_response.text.split(token_prefix, 1)[1].split('"', 1)[0]
+
+    commit_response = gui_client.post(
+        "/library/bundle-import/commit",
+        data={"token": token, "current_dir": "uploaded/jobs"},
+        follow_redirects=True,
+    )
+
+    assert commit_response.status_code == 200
+    assert "Runtime-safe primary .urp rename" in commit_response.text
+    assert "my program.urp -&gt; my_program.urp" in commit_response.text
+    assert "uploaded/jobs/my_program/my_program.urp" in commit_response.text
+
+
+def test_library_upload_redirects_with_error_feedback() -> None:
+    FakeLibraryManager.entries = {}
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = "upload blocked"
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/upload",
+        data={"current_dir": "uploaded"},
         files={"upload_file": ("demo.script", b"def demo():\nend\n", "text/plain")},
         follow_redirects=True,
     )
@@ -1079,11 +2681,263 @@ def test_library_upload_redirects_with_error_feedback() -> None:
     assert "Upload failed: upload blocked" in response.text
 
 
-def test_library_remote_import_redirects_with_success_feedback(tmp_path: Path) -> None:
-    FakeLibraryManager.items = []
+def test_library_create_folder_redirects_with_success_feedback() -> None:
+    FakeLibraryManager.entries = {}
+    FakeLibraryManager.list_errors = {}
     FakeLibraryManager.inspect_errors = {}
     FakeLibraryManager.remove_errors = {}
     FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/create-folder",
+        data={"current_dir": "uploaded", "folder_name": "jobs"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Created folder: uploaded/jobs" in response.text
+
+
+def test_library_create_folder_redirects_with_error_feedback() -> None:
+    FakeLibraryManager.entries = {}
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = "folder blocked"
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/create-folder",
+        data={"current_dir": "uploaded", "folder_name": "jobs"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Create folder failed: folder blocked" in response.text
+
+
+def test_library_remove_redirects_with_success_feedback() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+    }
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.removed = []
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/remove/uploaded/demo.script",
+        data={"current_dir": "uploaded"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Removed library path: uploaded/demo.script" in response.text
+    assert FakeLibraryManager.removed == ["uploaded/demo.script"]
+
+
+def test_library_remove_redirects_with_error_feedback() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+    }
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {"uploaded/demo.script": "remove blocked"}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.removed = []
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/remove/uploaded/demo.script",
+        data={"current_dir": "uploaded"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Remove failed: remove blocked" in response.text
+
+
+def test_library_move_redirects_with_success_feedback() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+    }
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/move",
+        data={
+            "source_path": "uploaded/demo.script",
+            "destination_path": "uploaded/archive/demo.script",
+            "current_dir": "uploaded",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Moved library path to: uploaded/archive/demo.script" in response.text
+
+
+def test_library_move_redirects_with_error_feedback() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+    }
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {
+        ("uploaded/demo.script", "uploaded/archive/demo.script"): "move blocked"
+    }
+    FakeLibraryManager.copy_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/move",
+        data={
+            "source_path": "uploaded/demo.script",
+            "destination_path": "uploaded/archive/demo.script",
+            "current_dir": "uploaded",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Move failed: move blocked" in response.text
+
+
+def test_library_copy_redirects_with_success_feedback() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+    }
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/copy",
+        data={
+            "source_path": "uploaded/demo.script",
+            "destination_path": "uploaded/demo_copy.script",
+            "current_dir": "uploaded",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Copied library path to: uploaded/demo_copy.script" in response.text
+
+
+def test_library_copy_redirects_with_error_feedback() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+    }
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {
+        ("uploaded/demo.script", "uploaded/demo_copy.script"): "copy blocked"
+    }
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/copy",
+        data={
+            "source_path": "uploaded/demo.script",
+            "destination_path": "uploaded/demo_copy.script",
+            "current_dir": "uploaded",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Copy failed: copy blocked" in response.text
+
+
+def test_library_send_to_robot_redirects_with_success_feedback(tmp_path: Path) -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+    }
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.stored_file_errors = {}
+    FakeRobotManager.calls = []
+    FakeRobotManager.remote_file_action_errors = {}
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(
         """
@@ -1092,6 +2946,155 @@ robots:
     host: 127.0.0.1
     dashboard_port: 29991
     script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    gui_client = TestClient(
+        create_app(
+            config_path=config_path,
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/send-to-robot",
+        data={
+            "source_path": "uploaded/demo.script",
+            "robot_name": "robot1",
+            "remote_dir": "/programs/jobs",
+            "current_dir": "uploaded",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Sent to robot &#39;robot1&#39;: uploaded/demo.script -&gt; /programs/jobs/demo.script" in response.text
+    assert ("deploy", "demo.script:/programs/jobs/demo.script") in FakeRobotManager.calls
+
+
+def test_library_send_bundle_to_robot_deploys_all_files_and_can_assign_runtime(
+    tmp_path: Path,
+) -> None:
+    bundle_root = tmp_path / "storage" / "library" / "uploaded" / "demo_bundle"
+    bundle_root.mkdir(parents=True, exist_ok=True)
+    (bundle_root / "main.urp").write_text("<urp/>", encoding="utf-8")
+    (bundle_root / "main.installation").write_text("installation", encoding="utf-8")
+    (bundle_root / "main.variables").write_text("variables", encoding="utf-8")
+    FakeLibraryManager.entries = {
+        "uploaded/demo_bundle/main.urp": _make_library_file("uploaded/demo_bundle/main.urp"),
+        "uploaded/demo_bundle/main.installation": _make_library_file(
+            "uploaded/demo_bundle/main.installation", extension="installation"
+        ),
+        "uploaded/demo_bundle/main.variables": _make_library_file(
+            "uploaded/demo_bundle/main.variables", extension="variables"
+        ),
+    }
+    for path, entry in FakeLibraryManager.entries.items():
+        entry["stored_path"] = str(tmp_path / "storage" / "library" / path)
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.bundle_errors = {}
+    FakeLibraryManager.stored_file_errors = {}
+    FakeRobotManager.calls = []
+    FakeRobotManager.remote_file_action_errors = {}
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    gui_client = TestClient(
+        create_app(
+            config_path=config_path,
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/send-to-robot",
+        data={
+            "source_path": "uploaded/demo_bundle",
+            "robot_name": "robot1",
+            "remote_dir": "/programs/jobs",
+            "current_dir": "uploaded",
+            "assign_after_deploy": "1",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Deployed bundle to robot" in response.text
+    assert "/programs/jobs/demo_bundle/main.urp" in response.text
+    assert "Assigned as runtime target." in response.text
+    assert ("deploy-bundle", "demo_bundle:/programs/jobs/demo_bundle") in FakeRobotManager.calls
+
+
+def test_transfer_execute_bundle_shows_explicit_deploy_assign_validate_result(
+    tmp_path: Path,
+) -> None:
+    bundle_root = tmp_path / "storage" / "library" / "uploaded" / "demo_bundle"
+    bundle_root.mkdir(parents=True, exist_ok=True)
+    (bundle_root / "main.urp").write_text("<urp/>", encoding="utf-8")
+    (bundle_root / "main.installation").write_text("installation", encoding="utf-8")
+    (bundle_root / "main.variables").write_text("variables", encoding="utf-8")
+
+    FakeLibraryManager.entries = {
+        "uploaded/demo_bundle/main.urp": _make_library_file("uploaded/demo_bundle/main.urp"),
+        "uploaded/demo_bundle/main.installation": _make_library_file(
+            "uploaded/demo_bundle/main.installation", extension="installation"
+        ),
+        "uploaded/demo_bundle/main.variables": _make_library_file(
+            "uploaded/demo_bundle/main.variables", extension="variables"
+        ),
+    }
+    for path, entry in FakeLibraryManager.entries.items():
+        entry["stored_path"] = str(tmp_path / "storage" / "library" / path)
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.bundle_errors = {}
+    FakeLibraryManager.stored_file_errors = {}
+
+    FakeRobotManager.calls = []
+    FakeRobotManager.remote_file_action_errors = {}
+    FakeRobotManager.action_results = {("robot1", "load"): "Loading program: programs/jobs/demo_bundle/main.urp"}
+    FakeRobotManager.action_errors = {}
+    FakeRobotManager.explicit_load_outcomes = {"robot1": "success"}
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
     enabled: true
     assigned_program: null
 """.strip(),
@@ -1106,21 +3109,344 @@ robots:
     )
 
     response = gui_client.post(
-        "/library/import-remote",
-        data={"robot_name": "robot1", "remote_path": "/programs/demo.urp"},
+        "/transfer/execute",
+        data={
+            "source_path": "uploaded/demo_bundle",
+            "robot_name": "robot1",
+            "remote_dir": "/programs/jobs",
+            "assign_after_deploy": "1",
+            "validate_load_after_assign": "1",
+        },
         follow_redirects=True,
     )
 
     assert response.status_code == 200
-    assert "Imported from robot &#39;robot1&#39;: added-1" in response.text
-    assert "/programs/demo.urp" in response.text
+    assert "Deploy / Assign / Validate outcome" in response.text
+    assert "Workflow Result" in response.text
+    assert "Assignment Performed" in response.text
+    assert "Yes" in response.text
+    assert "/programs/jobs/demo_bundle/main.urp" in response.text
+    assert "validation outcome" in response.text.lower() or "Validation Outcome" in response.text
+    assert "Continue to Robot Workspace" in response.text
 
 
-def test_library_remote_import_redirects_with_error_feedback(tmp_path: Path) -> None:
-    FakeLibraryManager.items = []
+def test_transfer_execute_blocks_nested_bundle_destination_without_override(
+    tmp_path: Path,
+) -> None:
+    bundle_root = tmp_path / "storage" / "library" / "uploaded" / "demo_bundle"
+    bundle_root.mkdir(parents=True, exist_ok=True)
+    (bundle_root / "main.urp").write_text("<urp/>", encoding="utf-8")
+    (bundle_root / "main.installation").write_text("installation", encoding="utf-8")
+    (bundle_root / "main.variables").write_text("variables", encoding="utf-8")
+    FakeLibraryManager.entries = {
+        "uploaded/demo_bundle/main.urp": _make_library_file("uploaded/demo_bundle/main.urp"),
+        "uploaded/demo_bundle/main.installation": _make_library_file(
+            "uploaded/demo_bundle/main.installation", extension="installation"
+        ),
+        "uploaded/demo_bundle/main.variables": _make_library_file(
+            "uploaded/demo_bundle/main.variables", extension="variables"
+        ),
+    }
+    for path, entry in FakeLibraryManager.entries.items():
+        entry["stored_path"] = str(tmp_path / "storage" / "library" / path)
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    gui_client = TestClient(
+        create_app(
+            config_path=config_path,
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/transfer/execute",
+        data={
+            "source_path": "uploaded/demo_bundle",
+            "robot_name": "robot1",
+            "remote_dir": "/ursim/programs.UR5/demo_bundle",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "nested bundle path" in response.text.lower()
+
+
+def test_transfer_execute_blocks_ordinary_folder_source(tmp_path: Path) -> None:
+    FakeLibraryManager.entries = {
+        "robot1/readme.txt": _make_library_file("robot1/readme.txt", extension="txt"),
+    }
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    gui_client = TestClient(
+        create_app(
+            config_path=config_path,
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/transfer/execute",
+        data={
+            "source_path": "robot1",
+            "robot_name": "robot1",
+            "remote_dir": "/ursim/programs.UR5",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Selected bundle has no deterministic primary .urp." in response.text
+
+
+def test_transfer_result_shows_skipped_assignment_and_validation_note(
+    tmp_path: Path,
+) -> None:
+    library_file = tmp_path / "storage" / "library" / "uploaded" / "demo.urp"
+    library_file.parent.mkdir(parents=True, exist_ok=True)
+    library_file.write_text("<urp/>", encoding="utf-8")
+    FakeLibraryManager.entries = {
+        "uploaded/demo.urp": _make_library_file("uploaded/demo.urp"),
+    }
+    FakeLibraryManager.entries["uploaded/demo.urp"]["stored_path"] = str(library_file)
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: /ursim/programs.UR5/old/old.urp
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_file_action_errors = {}
+    gui_client = TestClient(
+        create_app(
+            config_path=config_path,
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/transfer/execute",
+        data={
+            "source_path": "uploaded/demo.urp",
+            "robot_name": "robot1",
+            "remote_dir": "/ursim/programs.UR5",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Runtime assignment was not changed." in response.text
+    assert "dashboard load was not validated" in response.text.lower()
+
+
+def test_library_prepare_runtime_safe_copy_for_legacy_unsafe_bundle() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/legacy/main file.urp": _make_library_file("uploaded/legacy/main file.urp"),
+        "uploaded/legacy/main.installation": _make_library_file(
+            "uploaded/legacy/main.installation", extension="installation"
+        ),
+        "uploaded/legacy/main.variables": _make_library_file(
+            "uploaded/legacy/main.variables", extension="variables"
+        ),
+    }
+    FakeLibraryManager.safe_copy_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/bundle-prepare-safe-copy",
+        data={"source_path": "uploaded/legacy", "current_dir": "uploaded"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Prepared runtime-safe copy: uploaded/legacy_safe" in response.text
+    assert "main file.urp -&gt; main_file.urp" in response.text
+    assert "uploaded/legacy_safe/main_file.urp" in response.text
+
+
+def test_transfer_execute_validation_is_blocked_for_unsafe_runtime_argument(
+    tmp_path: Path,
+) -> None:
+    bundle_root = tmp_path / "storage" / "library" / "uploaded" / "demo_bundle"
+    bundle_root.mkdir(parents=True, exist_ok=True)
+    (bundle_root / "main file.urp").write_text("<urp/>", encoding="utf-8")
+    (bundle_root / "main.installation").write_text("installation", encoding="utf-8")
+    (bundle_root / "main.variables").write_text("variables", encoding="utf-8")
+
+    FakeLibraryManager.entries = {
+        "uploaded/demo_bundle/main file.urp": _make_library_file("uploaded/demo_bundle/main file.urp"),
+        "uploaded/demo_bundle/main.installation": _make_library_file(
+            "uploaded/demo_bundle/main.installation", extension="installation"
+        ),
+        "uploaded/demo_bundle/main.variables": _make_library_file(
+            "uploaded/demo_bundle/main.variables", extension="variables"
+        ),
+    }
+    for path, entry in FakeLibraryManager.entries.items():
+        entry["stored_path"] = str(tmp_path / "storage" / "library" / path)
+    FakeLibraryManager.list_errors = {}
     FakeLibraryManager.inspect_errors = {}
     FakeLibraryManager.remove_errors = {}
     FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.bundle_errors = {}
+    FakeLibraryManager.stored_file_errors = {}
+
+    FakeRobotManager.calls = []
+    FakeRobotManager.remote_file_action_errors = {}
+    FakeRobotManager.action_results = {}
+    FakeRobotManager.action_errors = {}
+    FakeRobotManager.explicit_load_outcomes = {}
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    gui_client = TestClient(
+        create_app(
+            config_path=config_path,
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/transfer/execute",
+        data={
+            "source_path": "uploaded/demo_bundle",
+            "robot_name": "robot1",
+            "remote_dir": "/ursim/programs.UR5/jobs",
+            "assign_after_deploy": "1",
+            "validate_load_after_assign": "1",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "validation was blocked" in response.text
+    assert "unsafe_runtime_path" in response.text
+    assert "Cannot validate dashboard load because the derived load argument contains spaces or unsafe characters." in response.text
+
+
+def test_library_send_to_robot_redirects_with_missing_local_file_feedback(tmp_path: Path) -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+    }
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.stored_file_errors = {
+        "uploaded/demo.script": "Stored library file not found for 'uploaded/demo.script': missing payload"
+    }
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    gui_client = TestClient(
+        create_app(
+            config_path=config_path,
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/send-to-robot",
+        data={
+            "source_path": "uploaded/demo.script",
+            "robot_name": "robot1",
+            "remote_dir": "/programs",
+            "current_dir": "uploaded",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Send to robot failed: Stored library file not found" in response.text
+
+
+def test_library_send_to_robot_redirects_with_invalid_robot_feedback(tmp_path: Path) -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+    }
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.stored_file_errors = {}
     config_path = tmp_path / "robots.yaml"
     config_path.write_text("robots: {}\n", encoding="utf-8")
     gui_client = TestClient(
@@ -1132,276 +3458,35 @@ def test_library_remote_import_redirects_with_error_feedback(tmp_path: Path) -> 
     )
 
     response = gui_client.post(
-        "/library/import-remote",
-        data={"robot_name": "robot1", "remote_path": "/programs/demo.urp"},
+        "/library/send-to-robot",
+        data={
+            "source_path": "uploaded/demo.script",
+            "robot_name": "robot9",
+            "remote_dir": "/programs",
+            "current_dir": "uploaded",
+        },
         follow_redirects=True,
     )
 
     assert response.status_code == 200
-    assert "Import failed:" in response.text
+    assert "Send to robot failed:" in response.text
+    assert "robot9" in response.text
 
 
-def test_library_assign_remote_redirects_with_success_feedback(tmp_path: Path) -> None:
-    FakeLibraryManager.items = []
-    FakeLibraryManager.inspect_errors = {}
-    FakeLibraryManager.remove_errors = {}
-    FakeLibraryManager.add_error = None
-    config_path = tmp_path / "robots.yaml"
-    config_path.write_text(
-        """
-robots:
-  robot1:
-    host: 127.0.0.1
-    dashboard_port: 29991
-    script_port: 30021
-    enabled: true
-    assigned_program: null
-""".strip(),
-        encoding="utf-8",
-    )
-    gui_client = TestClient(create_app(config_path=config_path, library_manager_factory=FakeLibraryManager, robot_manager_factory=FakeRobotManager))
-
-    response = gui_client.post(
-        "/library/assign-remote",
-        data={"robot_name": "robot1", "robot_program_path": "programs/demo.urp"},
-        follow_redirects=True,
-    )
-
-    assert response.status_code == 200
-    assert "Assigned remote path to robot &#39;robot1&#39;: programs/demo.urp" in response.text
-    assert "programs/demo.urp" in config_path.read_text(encoding="utf-8")
-
-
-def test_library_assign_library_redirects_with_success_feedback(tmp_path: Path) -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-urp-1",
-            "original_filename": "robot_job.urp",
-            "extension": "urp",
-            "stored_path": "storage/programs/demo-urp-1/robot_job.urp",
-        }
-    ]
-    FakeLibraryManager.inspect_errors = {}
-    FakeLibraryManager.remove_errors = {}
-    FakeLibraryManager.add_error = None
-    config_path = tmp_path / "robots.yaml"
-    config_path.write_text(
-        """
-robots:
-  robot1:
-    host: 127.0.0.1
-    dashboard_port: 29991
-    script_port: 30021
-    enabled: true
-    assigned_program: null
-""".strip(),
-        encoding="utf-8",
-    )
-    gui_client = TestClient(create_app(config_path=config_path, library_manager_factory=FakeLibraryManager, robot_manager_factory=FakeRobotManager))
-
-    response = gui_client.post(
-        "/library/assign-library",
-        data={"robot_name": "robot1", "program_id": "demo-urp-1"},
-        follow_redirects=True,
-    )
-
-    assert response.status_code == 200
-    assert "Assigned library item &#39;demo-urp-1&#39; to robot &#39;robot1&#39;" in response.text
-    assert "/programs/robot_job.urp" in config_path.read_text(encoding="utf-8")
-
-
-def test_library_assign_script_rejects_non_script_item(tmp_path: Path) -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-urp-1",
-            "original_filename": "robot_job.urp",
-            "extension": "urp",
-            "stored_path": "storage/programs/demo-urp-1/robot_job.urp",
-        }
-    ]
-    FakeLibraryManager.inspect_errors = {}
-    FakeLibraryManager.remove_errors = {}
-    FakeLibraryManager.add_error = None
-    config_path = tmp_path / "robots.yaml"
-    config_path.write_text(
-        """
-robots:
-  robot1:
-    host: 127.0.0.1
-    dashboard_port: 29991
-    script_port: 30021
-    enabled: true
-    assigned_program: null
-""".strip(),
-        encoding="utf-8",
-    )
-    gui_client = TestClient(create_app(config_path=config_path, library_manager_factory=FakeLibraryManager, robot_manager_factory=FakeRobotManager))
-
-    response = gui_client.post(
-        "/library/assign-script",
-        data={"robot_name": "robot1", "program_id": "demo-urp-1"},
-        follow_redirects=True,
-    )
-
-    assert response.status_code == 200
-    assert "Assign script failed:" in response.text
-    assert "not a .script" in response.text
-
-
-def test_library_deploy_redirects_with_success_feedback(tmp_path: Path) -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-script-1",
-            "original_filename": "demo.script",
-            "extension": "script",
-            "stored_path": str(tmp_path / "storage" / "programs" / "demo-script-1" / "demo.script"),
-        }
-    ]
-    FakeLibraryManager.inspect_errors = {}
-    FakeLibraryManager.remove_errors = {}
-    FakeLibraryManager.add_error = None
-    FakeRobotManager.calls = []
-    config_path = tmp_path / "robots.yaml"
-    config_path.write_text(
-        """
-robots:
-  robot1:
-    host: 127.0.0.1
-    dashboard_port: 29991
-    script_port: 30021
-    enabled: true
-    assigned_program: null
-""".strip(),
-        encoding="utf-8",
-    )
-    gui_client = TestClient(create_app(config_path=config_path, library_manager_factory=FakeLibraryManager, robot_manager_factory=FakeRobotManager))
-
-    response = gui_client.post(
-        "/library/deploy",
-        data={"robot_name": "robot1", "program_id": "demo-script-1", "remote_dir": "/custom_dir"},
-        follow_redirects=True,
-    )
-
-    assert response.status_code == 200
-    assert "Deployed &#39;demo-script-1&#39; to robot &#39;robot1&#39;: /custom_dir/demo.script" in response.text
-
-
-def test_library_run_script_redirects_with_success_feedback(tmp_path: Path) -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-script-1",
-            "original_filename": "demo.script",
-            "extension": "script",
-            "stored_path": str(tmp_path / "storage" / "programs" / "demo-script-1" / "demo.script"),
-        }
-    ]
-    FakeLibraryManager.inspect_errors = {}
-    FakeLibraryManager.remove_errors = {}
-    FakeLibraryManager.add_error = None
-    FakeRobotManager.calls = []
-    config_path = tmp_path / "robots.yaml"
-    config_path.write_text(
-        """
-robots:
-  robot1:
-    host: 127.0.0.1
-    dashboard_port: 29991
-    script_port: 30021
-    enabled: true
-    assigned_program: null
-""".strip(),
-        encoding="utf-8",
-    )
-    gui_client = TestClient(create_app(config_path=config_path, library_manager_factory=FakeLibraryManager, robot_manager_factory=FakeRobotManager))
-
-    response = gui_client.post(
-        "/library/run-script",
-        data={"robot_name": "robot1", "program_id": "demo-script-1"},
-        follow_redirects=True,
-    )
-
-    assert response.status_code == 200
-    assert "Run script succeeded for robot &#39;robot1&#39;" in response.text
-    assert ("run-script", "demo.script") in FakeRobotManager.calls
-
-
-def test_library_run_script_rejects_non_script_item(tmp_path: Path) -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-urp-1",
-            "original_filename": "robot_job.urp",
-            "extension": "urp",
-            "stored_path": str(tmp_path / "storage" / "programs" / "demo-urp-1" / "robot_job.urp"),
-        }
-    ]
-    FakeLibraryManager.inspect_errors = {}
-    FakeLibraryManager.remove_errors = {}
-    FakeLibraryManager.add_error = None
-    config_path = tmp_path / "robots.yaml"
-    config_path.write_text(
-        """
-robots:
-  robot1:
-    host: 127.0.0.1
-    dashboard_port: 29991
-    script_port: 30021
-    enabled: true
-    assigned_program: null
-""".strip(),
-        encoding="utf-8",
-    )
-    gui_client = TestClient(create_app(config_path=config_path, library_manager_factory=FakeLibraryManager, robot_manager_factory=FakeRobotManager))
-
-    response = gui_client.post(
-        "/library/run-script",
-        data={"robot_name": "robot1", "program_id": "demo-urp-1"},
-        follow_redirects=True,
-    )
-
-    assert response.status_code == 200
-    assert "Run script failed:" in response.text
-    assert "not a .script" in response.text
-
-
-def test_library_page_renders_urp_detail_compatibility_and_safe_params(tmp_path: Path) -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-urp-1",
-            "original_filename": "robot_job.urp",
-            "extension": "urp",
-            "stored_path": str(tmp_path / "storage" / "programs" / "demo-urp-1" / "robot_job.urp"),
-            "origin": "local",
-        }
-    ]
-    FakeLibraryManager.inspect_errors = {}
-    FakeLibraryManager.remove_errors = {}
-    FakeLibraryManager.add_error = None
-    FakeLibraryManager.editable_param_errors = {}
-    FakeLibraryManager.set_param_errors = {}
-    FakeLibraryManager.editable_params = {
-        "demo-urp-1": {
-            "installation_name": "cell_a",
-            "pallet_rows": "4",
-        }
+def test_library_send_to_robot_redirects_with_invalid_remote_destination_feedback(tmp_path: Path) -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
     }
-    FakeLibraryManager.urp_analysis_by_id = {
-        "demo-urp-1": {
-            "parse_success": True,
-            "program_name": "robot_job",
-            "installation_name": "cell_a",
-            "polyscope_version": "5.15.0",
-            "urcap_names": ["GripKit"],
-            "contains_palletizing": True,
-            "pallet_rows": "4",
-        }
-    }
-    FakeCompatibilityService.errors = {}
-    FakeCompatibilityService.results = {
-        ("robot1", "demo-urp-1"): CompatibilityResult(
-            overall_status="warning",
-            summary="Compatibility check found warnings.",
-            findings=["Installation dependency detected: cell_a"],
-        )
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.remove_errors = {}
+    FakeLibraryManager.add_error = None
+    FakeLibraryManager.create_folder_error = None
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    FakeLibraryManager.stored_file_errors = {}
+    FakeRobotManager.remote_file_action_errors = {
+        ("robot1", "deploy", "/invalid/demo.script"): "remote destination blocked"
     }
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(
@@ -1411,161 +3496,31 @@ robots:
     host: 127.0.0.1
     dashboard_port: 29991
     script_port: 30021
+    ssh_port: 2222
     enabled: true
     assigned_program: null
 """.strip(),
         encoding="utf-8",
     )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
     gui_client = TestClient(
         create_app(
             config_path=config_path,
             library_manager_factory=FakeLibraryManager,
             robot_manager_factory=FakeRobotManager,
-            compatibility_service_factory=FakeCompatibilityService,
-        )
-    )
-
-    response = gui_client.get("/library?selected=demo-urp-1&compat_robot=robot1")
-
-    assert response.status_code == 200
-    assert "URP Detail" in response.text
-    assert "robot_job" in response.text
-    assert "GripKit" in response.text
-    assert "Compatibility check found warnings." in response.text
-    assert "Installation dependency detected: cell_a" in response.text
-    assert "installation_name" in response.text
-    assert "pallet_rows" in response.text
-    assert "Set Safe Param" in response.text
-
-
-def test_library_page_tolerates_urp_parse_failure_and_param_lookup_failure(tmp_path: Path) -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-urp-1",
-            "original_filename": "robot_job.urp",
-            "extension": "urp",
-            "stored_path": str(tmp_path / "storage" / "programs" / "demo-urp-1" / "robot_job.urp"),
-        }
-    ]
-    FakeLibraryManager.inspect_errors = {}
-    FakeLibraryManager.remove_errors = {}
-    FakeLibraryManager.add_error = None
-    FakeLibraryManager.urp_analysis_by_id = {
-        "demo-urp-1": {
-            "parse_success": False,
-            "parse_error": "xml parse failed",
-        }
-    }
-    FakeLibraryManager.editable_params = {}
-    FakeLibraryManager.editable_param_errors = {"demo-urp-1": "param scan failed"}
-    FakeLibraryManager.set_param_errors = {}
-    gui_client = TestClient(
-        create_app(
-            library_manager_factory=FakeLibraryManager,
-            robot_manager_factory=FakeRobotManager,
-            compatibility_service_factory=FakeCompatibilityService,
-        )
-    )
-
-    response = gui_client.get("/library?selected=demo-urp-1")
-
-    assert response.status_code == 200
-    assert "URP parse failed: xml parse failed" in response.text
-    assert "Editable param lookup failed: param scan failed" in response.text
-
-
-def test_library_set_urp_param_redirects_with_success_feedback(tmp_path: Path) -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-urp-1",
-            "original_filename": "robot_job.urp",
-            "extension": "urp",
-            "stored_path": str(tmp_path / "storage" / "programs" / "demo-urp-1" / "robot_job.urp"),
-        }
-    ]
-    FakeLibraryManager.inspect_errors = {}
-    FakeLibraryManager.remove_errors = {}
-    FakeLibraryManager.add_error = None
-    FakeLibraryManager.editable_param_errors = {}
-    FakeLibraryManager.set_param_errors = {}
-    FakeLibraryManager.editable_params = {
-        "demo-urp-1": {
-            "installation_name": "cell_a",
-        }
-    }
-    FakeLibraryManager.urp_analysis_by_id = {
-        "demo-urp-1": {
-            "parse_success": True,
-            "program_name": "robot_job",
-        }
-    }
-    gui_client = TestClient(
-        create_app(
-            library_manager_factory=FakeLibraryManager,
-            robot_manager_factory=FakeRobotManager,
-            compatibility_service_factory=FakeCompatibilityService,
         )
     )
 
     response = gui_client.post(
-        "/library/urp-set",
+        "/library/send-to-robot",
         data={
-            "program_id": "demo-urp-1",
-            "param_name": "installation_name",
-            "value": "cell_b",
+            "source_path": "uploaded/demo.script",
+            "robot_name": "robot1",
+            "remote_dir": "/invalid",
+            "current_dir": "uploaded",
         },
         follow_redirects=True,
     )
 
     assert response.status_code == 200
-    assert "Updated URP param &#39;installation_name&#39; for &#39;demo-urp-1&#39; to &#39;cell_b&#39;" in response.text
-    assert "cell_b" in response.text
-
-
-def test_library_set_urp_param_rejects_invalid_param_value_update(tmp_path: Path) -> None:
-    FakeLibraryManager.items = [
-        {
-            "program_id": "demo-urp-1",
-            "original_filename": "robot_job.urp",
-            "extension": "urp",
-            "stored_path": str(tmp_path / "storage" / "programs" / "demo-urp-1" / "robot_job.urp"),
-        }
-    ]
-    FakeLibraryManager.inspect_errors = {}
-    FakeLibraryManager.remove_errors = {}
-    FakeLibraryManager.add_error = None
-    FakeLibraryManager.editable_param_errors = {}
-    FakeLibraryManager.editable_params = {
-        "demo-urp-1": {
-            "installation_name": "cell_a",
-        }
-    }
-    FakeLibraryManager.set_param_errors = {
-        ("demo-urp-1", "installation_name"): "invalid installation value"
-    }
-    FakeLibraryManager.urp_analysis_by_id = {
-        "demo-urp-1": {
-            "parse_success": True,
-            "program_name": "robot_job",
-        }
-    }
-    gui_client = TestClient(
-        create_app(
-            library_manager_factory=FakeLibraryManager,
-            robot_manager_factory=FakeRobotManager,
-            compatibility_service_factory=FakeCompatibilityService,
-        )
-    )
-
-    response = gui_client.post(
-        "/library/urp-set",
-        data={
-            "program_id": "demo-urp-1",
-            "param_name": "installation_name",
-            "value": "bad!",
-        },
-        follow_redirects=True,
-    )
-
-    assert response.status_code == 200
-    assert "Set URP param failed: invalid installation value" in response.text
+    assert "Send to robot failed: remote destination blocked" in response.text

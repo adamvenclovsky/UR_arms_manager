@@ -7,7 +7,7 @@ from ur_arms_manager import cli
 
 
 def test_library_list_empty(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     exit_code = cli._main(["library", "list"])
     output = capsys.readouterr().out
 
@@ -16,7 +16,7 @@ def test_library_list_empty(tmp_path: Path, monkeypatch, capsys) -> None:
 
 
 def test_library_add_inspect_remove_via_cli(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "ROOT_DIR", tmp_path)
 
     source = tmp_path / "programs" / "robot1" / "demo.script"
@@ -47,18 +47,18 @@ def test_library_add_inspect_remove_via_cli(tmp_path: Path, monkeypatch, capsys)
 
 
 def test_library_inspect_missing_returns_clean_error(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli.sys, "argv", ["uam", "library", "inspect", "missing-id"])
 
     exit_code = cli.main()
     output = capsys.readouterr().out
 
     assert exit_code == 3
-    assert "[library error] Library item not found: missing-id" in output
+    assert "[library error] Library path not found: missing-id" in output
 
 
 def test_library_inspect_non_urp_behavior_unchanged(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "ROOT_DIR", tmp_path)
 
     source = tmp_path / "demo.script"
@@ -77,7 +77,7 @@ def test_library_inspect_non_urp_behavior_unchanged(tmp_path: Path, monkeypatch,
 
 
 def test_library_inspect_urp_shows_analysis(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "ROOT_DIR", tmp_path)
 
     urp_path = tmp_path / "demo.urp"
@@ -108,7 +108,7 @@ def test_library_inspect_urp_shows_analysis(tmp_path: Path, monkeypatch, capsys)
 def test_library_inspect_malformed_urp_is_failure_tolerant(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "ROOT_DIR", tmp_path)
 
     broken = tmp_path / "broken.urp"
@@ -152,7 +152,7 @@ robots:
             return target
 
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "RobotManager", FakeRobotManager)
 
     exit_code = cli._main(["library", "import-remote", "robot1", "/programs/demo.urp"])
@@ -162,8 +162,8 @@ robots:
     assert "Imported from robot 'robot1': /programs/demo.urp" in output
     assert "program_id=" in output
 
-    programs_root = tmp_path / "storage" / "programs"
-    imported = programs_root / "robot1" / "robot1_demo.urp"
+    programs_root = tmp_path / "storage" / "library"
+    imported = programs_root / "robot1_demo.urp"
     assert imported.is_file()
 
 
@@ -192,7 +192,7 @@ robots:
             raise RuntimeError("remote file not found")
 
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "RobotManager", FakeRobotManager)
     monkeypatch.setattr(
         cli.sys, "argv", ["uam", "library", "import-remote", "robot1", "/programs/missing.urp"]
@@ -208,7 +208,7 @@ robots:
 def test_library_urp_params_lists_detected_editable_fields(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "ROOT_DIR", tmp_path)
 
     urp_path = tmp_path / "editable.urp"
@@ -240,7 +240,7 @@ def test_library_urp_params_lists_detected_editable_fields(
 def test_library_urp_set_updates_and_inspect_reflects_value(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "ROOT_DIR", tmp_path)
 
     urp_path = tmp_path / "editable.urp"
@@ -271,7 +271,7 @@ def test_library_urp_set_updates_and_inspect_reflects_value(
 
 
 def test_library_urp_params_rejects_non_urp_item(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "ROOT_DIR", tmp_path)
 
     source = tmp_path / "demo.script"
@@ -292,7 +292,7 @@ def test_library_urp_params_rejects_non_urp_item(tmp_path: Path, monkeypatch, ca
 def test_library_urp_set_rejects_unsupported_or_undetected_param(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "ROOT_DIR", tmp_path)
 
     urp_path = tmp_path / "editable.urp"
@@ -323,7 +323,7 @@ def test_library_urp_set_rejects_unsupported_or_undetected_param(
 
 
 def test_library_urp_set_malformed_is_failure_safe(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "programs")
+    monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
     monkeypatch.setattr(cli, "ROOT_DIR", tmp_path)
 
     broken = tmp_path / "broken.urp"
@@ -334,7 +334,7 @@ def test_library_urp_set_malformed_is_failure_safe(tmp_path: Path, monkeypatch, 
     assert add_code == 0
     program_id = add_output.split("Added to library: ", maxsplit=1)[1].splitlines()[0].strip()
 
-    stored_file = tmp_path / "storage" / "programs" / program_id
+    stored_file = tmp_path / "storage" / "library" / program_id
     before = stored_file.read_bytes()
 
     monkeypatch.setattr(

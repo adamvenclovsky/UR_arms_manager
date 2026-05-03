@@ -10,6 +10,7 @@ In the target model:
 - each robot storage is a real filesystem over SSH/SFTP
 - the GUI shows only files and folders that physically exist
 - manifest metadata is no longer the primary source of truth
+- a new/empty library root starts empty (no auto-created robot or `uploaded` folders)
 
 This plan is documentation-only.
 It does not authorize implementation work by itself.

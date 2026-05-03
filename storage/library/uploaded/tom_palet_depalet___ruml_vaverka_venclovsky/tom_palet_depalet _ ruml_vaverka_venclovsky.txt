@@ -1,0 +1,80 @@
+ Program
+   Variables Setup
+   BeforeStart
+     pocitadlo≔0
+     Gripper Activate
+   Robot Program
+     If pocitadlo≟12
+       pocitadlo≔0
+     Call pas_on
+     Wait Sensor_vzadu=HI
+     Gripper Close (1)
+     MoveJ
+       Waypoint_2
+     Call pas_off
+     If pocitadlo<6
+       MoveL
+         Direction: Base Z-
+           Until (tool_contact_detection)
+             Direction: Base Z+
+               Until (distance)
+             Gripper Open (1)
+             Direction: Base Z-
+               Until (distance)
+             pocitadlo≔pocitadlo+1
+             Gripper Move44% (1)
+             Direction: Base Z+
+               Until (distance)
+             Call pas_off
+             Pallet_1
+               Patterns
+                 Grid_Pattern_1
+                   CornerItem_1
+                   CornerItem_2
+                   CornerItem_3
+                   CornerItem_4
+               Layers
+               At Each Item
+                 Generated Movements
+                   MoveJ
+                     Approach
+                   MoveL
+                     ToolActionPoint
+                   Tool action
+                     Gripper Open (1)
+                   MoveL
+                     Exit_1
+             MoveJ
+               Waypoint_2
+     If pocitadlo≥6 and pocitadlo<12
+       pocitadlo≔pocitadlo+1
+       Gripper Open (1)
+       Pallet_2
+         Patterns
+           Grid_Pattern_2
+             CornerItem_5
+             CornerItem_6
+             CornerItem_7
+             CornerItem_8
+         Layers
+         At Each Item
+           Generated Movements
+             MoveJ
+               Approach_1
+             MoveL
+               ToolActionPoi_1
+             Tool action
+               Gripper Close (1)
+             MoveL
+               Exit_2
+           MoveJ
+             Waypoint_3
+             MoveL
+               Waypoint_5
+             Gripper Open (1)
+             MoveL
+               Waypoint_3
+   pas_on
+     Set Dopravnik=On
+   pas_off
+     Set Dopravnik=Off

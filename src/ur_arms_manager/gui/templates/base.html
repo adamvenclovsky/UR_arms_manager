@@ -8,20 +8,21 @@
   </head>
   <body>
     <div class="app-shell">
-      <header class="site-header">
+      <aside class="site-header">
         <div>
-          <a class="brand" href="{{ url_for('index') }}">UR Arms Manager</a>
-          <p class="tagline">Operator GUI foundation</p>
+          <a class="brand" href="{{ url_for('overview') }}">UR Arms Manager</a>
+          <p class="tagline">Workspace control surface</p>
         </div>
         <nav class="site-nav" aria-label="Primary">
-          <a href="{{ url_for('index') }}" {% if active_page == 'home' %}aria-current="page"{% endif %}>Home</a>
-          <a href="{{ url_for('robots') }}" {% if active_page == 'robots' %}aria-current="page"{% endif %}>Robots</a>
+          <a href="{{ url_for('overview') }}" {% if active_page == 'overview' %}aria-current="page"{% endif %}>Overview</a>
+          <a href="{{ url_for('robots') }}" {% if active_page == 'robots' %}aria-current="page"{% endif %}>Fleet</a>
           <a href="{{ url_for('library') }}" {% if active_page == 'library' %}aria-current="page"{% endif %}>Library</a>
-          <a href="{{ url_for('system') }}" {% if active_page == 'system' %}aria-current="page"{% endif %}>System</a>
+          <a href="{{ url_for('transfer') }}" {% if active_page == 'transfer' %}aria-current="page"{% endif %}>Transfer</a>
+          <a href="{{ url_for('system') }}" {% if active_page == 'system' %}aria-current="page"{% endif %}>Diagnostics</a>
         </nav>
-      </header>
+      </aside>
 
-      <main class="page-content">
+      <main class="page-content workspace-content">
         {% block content %}{% endblock %}
       </main>
     </div>

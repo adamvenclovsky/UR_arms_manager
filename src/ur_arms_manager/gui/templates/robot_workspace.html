@@ -59,8 +59,16 @@
             <dd>{{ robot_card.ssh_port }}</dd>
           </div>
           <div class="detail-list-full">
-            <dt>Assigned Program</dt>
+            <dt>Assigned Runtime Path</dt>
             <dd class="program-value" data-role="assigned-program">{{ robot_card.assigned_program }}</dd>
+          </div>
+          <div>
+            <dt>Assignment Type</dt>
+            <dd data-role="assignment-kind">{{ robot_card.assignment_kind_label }}</dd>
+          </div>
+          <div class="detail-list-full">
+            <dt>Load Context</dt>
+            <dd class="status-detail" data-role="assignment-note">{{ robot_card.assignment_runtime_note }}</dd>
           </div>
         </dl>
       </article>
@@ -102,7 +110,7 @@
 
       <section class="action-panel workspace-panel">
         <div class="status-panel-header">
-          <p class="card-label">Actions</p>
+          <p class="card-label">Execution Controls</p>
         </div>
 
         {% if robot_card.actions_disabled_reason %}
@@ -111,6 +119,7 @@
           <p class="action-note">{{ robot_card.load_disabled_reason }}</p>
         {% endif %}
 
+        <p class="card-label">Dashboard Runtime</p>
         <div class="action-grid">
           <button type="button" class="action-button" data-action="power-on" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Power On</button>
           <button type="button" class="action-button" data-action="brake-release" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Brake Release</button>
@@ -120,77 +129,270 @@
           <button type="button" class="action-button" data-action="stop" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Stop</button>
         </div>
 
+        <p class="card-label">Direct Script Execution</p>
+        {% if latest_script_run %}
+          <p class="action-note {% if latest_script_run.status == 'error' %}action-note-warning{% endif %}">
+            Last script run ({{ latest_script_run.remote_path }}): {{ latest_script_run.message }}
+          </p>
+        {% else %}
+          <p class="action-note">No direct script run has been recorded yet in this workspace session.</p>
+        {% endif %}
+        {% if selected_remote_entry and selected_remote_entry.extension == "script" %}
+          <p class="action-note">Selected script context: <span class="program-value">{{ selected_remote_entry.remote_path }}</span></p>
+        {% else %}
+          <p class="action-note">Selected script context: none selected.</p>
+        {% endif %}
+
         <div class="action-feedback" data-role="action-feedback" hidden></div>
+
+        {% if runtime_validation %}
+          <section class="runtime-validation-panel">
+            <p class="card-label">Runtime Validation</p>
+            <dl class="detail-list library-detail-list">
+              <div class="detail-list-full">
+                <dt>Assigned Runtime Path</dt>
+                <dd class="program-value">{{ runtime_validation.assigned_runtime_path or "None assigned" }}</dd>
+              </div>
+              <div class="detail-list-full">
+                <dt>Derived Dashboard Load Argument</dt>
+                <dd class="program-value" data-role="derived-load-argument">
+                  {% if runtime_validation.derived_load_argument %}
+                    {{ runtime_validation.derived_load_argument }}
+                  {% elif runtime_validation.derived_load_argument_error %}
+                    Unsupported for current profile: {{ runtime_validation.derived_load_argument_error }}
+                  {% else %}
+                    Unavailable (assignment is not a loadable remote path)
+                  {% endif %}
+                </dd>
+              </div>
+              <div>
+                <dt>Last Load Outcome</dt>
+                <dd data-role="last-load-outcome">
+                  {% if runtime_validation.latest_load_validation %}
+                    {{ runtime_validation.latest_load_validation.outcome }}
+                  {% else %}
+                    not_attempted
+                  {% endif %}
+                </dd>
+              </div>
+              <div>
+                <dt>Ready for Play</dt>
+                <dd data-role="ready-for-play">{{ "Yes" if runtime_validation.readiness.ready_for_play else "No" }}</dd>
+              </div>
+              <div class="detail-list-full">
+                <dt>Last Load Response</dt>
+                <dd data-role="last-load-response">
+                  {% if runtime_validation.latest_load_validation and runtime_validation.latest_load_validation.raw_dashboard_response %}
+                    <span class="program-value">{{ runtime_validation.latest_load_validation.raw_dashboard_response }}</span>
+                  {% elif runtime_validation.latest_load_validation and runtime_validation.latest_load_validation.notes %}
+                    <span class="program-value">{{ runtime_validation.latest_load_validation.notes|join("; ") }}</span>
+                  {% else %}
+                    No dashboard load response recorded yet.
+                  {% endif %}
+                </dd>
+              </div>
+              <div>
+                <dt>Last Validation Timestamp</dt>
+                <dd data-role="last-load-validated-at">
+                  {% if runtime_validation.latest_load_validation and runtime_validation.latest_load_validation.validated_at_utc %}
+                    {{ runtime_validation.latest_load_validation.validated_at_utc }}
+                  {% else %}
+                    not_recorded
+                  {% endif %}
+                </dd>
+              </div>
+            </dl>
+            {% if runtime_validation.readiness.notes %}
+              <ul class="bundle-warning-list">
+                {% for note in runtime_validation.readiness.notes %}
+                  <li>{{ note }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+            {% if runtime_validation.latest_load_validation and runtime_validation.latest_load_validation.outcome == "unsafe_runtime_path" %}
+              <p class="action-note action-note-warning">
+                Cannot validate dashboard load because the derived load argument contains spaces or unsafe characters.
+                Prepare a runtime-safe bundle first.
+              </p>
+            {% endif %}
+          </section>
+        {% endif %}
       </section>
 
       <section class="library-detail-panel workspace-panel workspace-full-panel">
         <div class="status-panel-header">
           <div>
             <p class="card-label">Robot Files</p>
-            <h2>SSH/SFTP file browser</h2>
+            <h2>Remote file manager</h2>
           </div>
         </div>
 
         <p class="muted-note">
           These paths are robot-side SSH/SFTP filesystem paths. They are not dashboard/controller-visible load paths.
         </p>
-
-        <dl class="detail-list library-detail-list">
-          <div class="detail-list-full">
-            <dt>Current Remote Path</dt>
-            <dd class="program-value">{{ file_browser.current_dir }}</dd>
-          </div>
-        </dl>
-
-        {% if file_browser.parent_dir %}
-          <p><a class="card-link" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.parent_dir }}">Up One Level</a></p>
+        <p class="muted-note">
+          Current URSim remote root profile: <span class="program-value">{{ ursim_remote_root_profile }}</span>
+        </p>
+        {% if runtime_name_warning %}
+          <p class="action-note action-note-warning">{{ runtime_name_warning }}</p>
+        {% endif %}
+        {% if assigned_under_current_dir and runtime_validation and runtime_validation.assigned_runtime_path %}
+          <p class="action-note">Assigned runtime path is under this currently browsed remote directory: <span class="program-value">{{ runtime_validation.assigned_runtime_path }}</span></p>
         {% endif %}
 
-        {% if file_browser.listing_error %}
-          <div class="library-item-warning">
-            <p class="card-label">File Browser Error</p>
-            <p>{{ file_browser.listing_error }}</p>
-          </div>
-        {% elif file_browser.entries %}
-          <div class="robot-file-list">
-            {% for entry in file_browser.entries %}
-              {% if entry.kind == "directory" %}
-                <a class="robot-file-row robot-file-row-directory" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ entry.remote_path }}">
-                  <div class="library-row-main">
-                    <strong>{{ entry.name }}</strong>
-                    <span class="type-badge type-unknown">{{ entry.kind_label }}</span>
-                  </div>
-                  <div class="library-row-meta">
-                    <span>{{ entry.remote_path }}</span>
-                  </div>
-                </a>
-              {% else %}
-                <a class="robot-file-row {% if selected_remote_path == entry.remote_path %}library-row-active{% endif %}" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}&selected_remote_path={{ entry.remote_path }}">
-                  <div class="library-row-main">
-                    <strong>{{ entry.name }}</strong>
-                    <span class="type-badge {% if entry.name.endswith('.script') %}type-script{% elif entry.name.endswith('.urp') %}type-urp{% else %}type-unknown{% endif %}">{{ entry.kind_label }}</span>
-                  </div>
-                  <div class="library-row-meta">
-                    <span>{{ entry.remote_path }}</span>
-                  </div>
-                </a>
-              {% endif %}
-            {% endfor %}
-          </div>
-        {% else %}
-          <p class="muted-note">No files or directories were returned for this remote path.</p>
-        {% endif %}
+        <div class="robot-file-manager-grid">
+          <section class="robot-file-browser">
+            <dl class="detail-list library-detail-list">
+              <div class="detail-list-full">
+                <dt>Current Remote Path</dt>
+                <dd class="program-value">{{ file_browser.current_dir }}</dd>
+              </div>
+            </dl>
+            {% if file_browser.fallback_notice %}
+              <p class="action-note">{{ file_browser.fallback_notice }}</p>
+            {% endif %}
 
-        <form method="post" action="{{ url_for('import_robot_workspace_file', robot_name=robot_card.name) }}" class="library-remove-form">
-          <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
-          <input type="hidden" name="remote_path" value="{{ selected_remote_path or '' }}" />
-          {% if selected_remote_path %}
-            <p class="action-note">Selected file: <span class="program-value">{{ selected_remote_path }}</span></p>
-          {% else %}
-            <p class="action-note">Select one file from the robot file list, then import it into Library.</p>
-          {% endif %}
-          <button type="submit" class="action-button" {% if not selected_remote_path %}disabled{% endif %}>Import Selected File to Library</button>
-        </form>
+            {% if file_browser.parent_dir %}
+              <p><a class="card-link" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.parent_dir }}">Go Up One Level</a></p>
+            {% endif %}
+
+            {% if file_browser.listing_error %}
+              <div class="library-item-warning">
+                <p class="card-label">File Browser Error</p>
+                <p>{{ file_browser.listing_error }}</p>
+              </div>
+            {% elif file_browser.entries %}
+              <div class="robot-file-list">
+                {% for entry in file_browser.entries %}
+                  <article class="robot-file-row {% if entry.kind == 'directory' %}robot-file-row-directory{% endif %} {% if selected_remote_path == entry.remote_path %}library-row-active{% endif %}">
+                    <div class="library-row-main">
+                      {% if entry.kind == "directory" %}
+                        <a class="robot-file-primary" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ entry.remote_path }}">{{ entry.name }}</a>
+                      {% else %}
+                        <a class="robot-file-primary" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}&selected_remote_path={{ entry.remote_path }}">{{ entry.name }}</a>
+                      {% endif %}
+                      <span class="type-badge {{ entry.type_class }}">{{ entry.kind_label if entry.kind == "directory" else '.' ~ entry.extension if entry.extension else 'File' }}</span>
+                    </div>
+                    <div class="library-row-meta">
+                      <span>{{ entry.remote_path }}</span>
+                    </div>
+                    {% if entry.kind == "directory" %}
+                      <div class="library-browser-links">
+                        <a href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}&selected_remote_path={{ entry.remote_path }}">Inspect Folder</a>
+                        <a href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ entry.remote_path }}">Open Folder</a>
+                      </div>
+                    {% endif %}
+                  </article>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="muted-note">This remote directory is empty.</p>
+            {% endif %}
+
+            <section class="library-detail-actions">
+              <form method="post" action="{{ url_for('create_robot_workspace_folder', robot_name=robot_card.name) }}" class="stack-form">
+                <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
+                <label class="form-field">
+                  <span>Create folder in current path</span>
+                  <input type="text" name="folder_name" placeholder="new_folder" required />
+                </label>
+                <button type="submit" class="action-button">Create Remote Folder</button>
+              </form>
+            </section>
+          </section>
+
+          <section class="robot-file-detail">
+            <div class="panel-heading">
+              <p class="card-label">Selected Remote Path</p>
+              <h2>{% if selected_remote_entry %}{{ selected_remote_entry.name }}{% else %}No selection{% endif %}</h2>
+            </div>
+
+            {% if selected_remote_entry %}
+              <dl class="detail-list library-detail-list">
+                <div class="detail-list-full">
+                  <dt>Remote Path</dt>
+                  <dd class="program-value">{{ selected_remote_entry.remote_path }}</dd>
+                </div>
+                <div>
+                  <dt>Type</dt>
+                  <dd><span class="type-badge {{ selected_remote_entry.type_class }}">{{ selected_remote_entry.kind_label if selected_remote_entry.kind == "directory" else '.' ~ selected_remote_entry.extension if selected_remote_entry.extension else 'File' }}</span></dd>
+                </div>
+                <div>
+                  <dt>Name</dt>
+                  <dd>{{ selected_remote_entry.name }}</dd>
+                </div>
+                <div>
+                  <dt>Runtime Assignment</dt>
+                  <dd>Load uses the assigned runtime path shown in the robot header. Selecting one SSH/SFTP path here does not change runtime assignment until you assign it explicitly.</dd>
+                </div>
+                {% if latest_deployed_primary_path and selected_remote_entry.remote_path == latest_deployed_primary_path %}
+                  <div class="detail-list-full">
+                    <dt>Deploy Context</dt>
+                    <dd>This selected path matches the most recent deployed primary runtime candidate in this session.</dd>
+                  </div>
+                {% endif %}
+              </dl>
+
+              <form method="post" action="{{ url_for('remove_robot_workspace_path', robot_name=robot_card.name) }}" class="library-remove-form">
+                <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
+                <input type="hidden" name="remote_path" value="{{ selected_remote_entry.remote_path }}" />
+                <input type="hidden" name="item_kind" value="{{ selected_remote_entry.kind }}" />
+                <button type="submit" class="action-button action-button-danger">Remove Selected Path</button>
+              </form>
+
+              <section class="library-detail-actions">
+                <form method="post" action="{{ url_for('move_robot_workspace_path', robot_name=robot_card.name) }}" class="stack-form">
+                  <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
+                  <input type="hidden" name="source_path" value="{{ selected_remote_entry.remote_path }}" />
+                  <label class="form-field">
+                    <span>Move or rename to</span>
+                    <input type="text" name="destination_path" value="{{ selected_remote_entry.remote_path }}" required />
+                  </label>
+                  <button type="submit" class="action-button">Move Selected Path</button>
+                </form>
+
+                {% if selected_remote_entry.kind != "directory" %}
+                  {% if selected_remote_entry.extension != "script" %}
+                    <form method="post" action="{{ url_for('assign_robot_workspace_remote_file', robot_name=robot_card.name) }}" class="stack-form">
+                      <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
+                      <input type="hidden" name="remote_path" value="{{ selected_remote_entry.remote_path }}" />
+                      <input type="hidden" name="item_kind" value="{{ selected_remote_entry.kind }}" />
+                      <input type="hidden" name="item_extension" value="{{ selected_remote_entry.extension }}" />
+                      <button type="submit" class="action-button">Assign Selected File for Load</button>
+                    </form>
+                  {% else %}
+                    <p class="action-note">`.script` files remain separate from dashboard Load. Use direct Run Script where needed.</p>
+                    <form method="post" action="{{ url_for('run_robot_workspace_remote_script', robot_name=robot_card.name) }}" class="stack-form">
+                      <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
+                      <input type="hidden" name="remote_path" value="{{ selected_remote_entry.remote_path }}" />
+                      <button type="submit" class="action-button">Run Selected .script (Direct Script Socket)</button>
+                    </form>
+                  {% endif %}
+
+                  <form method="post" action="{{ url_for('copy_robot_workspace_file', robot_name=robot_card.name) }}" class="stack-form">
+                    <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
+                    <input type="hidden" name="source_path" value="{{ selected_remote_entry.remote_path }}" />
+                    <label class="form-field">
+                      <span>Copy file to</span>
+                      <input type="text" name="destination_path" value="{{ selected_remote_entry.copy_suggestion }}" required />
+                    </label>
+                    <button type="submit" class="action-button">Copy Selected File</button>
+                  </form>
+
+                  <form method="post" action="{{ url_for('import_robot_workspace_file', robot_name=robot_card.name) }}" class="stack-form">
+                    <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
+                    <input type="hidden" name="remote_path" value="{{ selected_remote_entry.remote_path }}" />
+                    <button type="submit" class="action-button">Import Selected File to Library</button>
+                  </form>
+                {% else %}
+                  <p class="action-note">Import to Library is only available for files. Open the folder or select one file inside it.</p>
+                {% endif %}
+              </section>
+            {% else %}
+              <p class="muted-note">Select a remote file or folder to inspect and manage it.</p>
+            {% endif %}
+          </section>
+        </div>
       </section>
     </section>
   {% endif %}
@@ -232,6 +434,34 @@
           statusRoot.querySelector('[data-role="program-state"]').textContent = status.program_state;
           statusRoot.querySelector('[data-role="status-detail"]').textContent = status.detail;
           card.querySelector('[data-role="assigned-program"]').textContent = robot.assigned_program;
+          card.querySelector('[data-role="assignment-kind"]').textContent = robot.assignment_kind_label;
+          card.querySelector('[data-role="assignment-note"]').textContent = robot.assignment_runtime_note;
+
+          const runtime = robot.runtime_validation;
+          if (runtime) {
+            const derived = document.querySelector('[data-role="derived-load-argument"]');
+            const outcome = document.querySelector('[data-role="last-load-outcome"]');
+            const ready = document.querySelector('[data-role="ready-for-play"]');
+            const response = document.querySelector('[data-role="last-load-response"]');
+            const validatedAt = document.querySelector('[data-role="last-load-validated-at"]');
+            if (derived) {
+              derived.textContent = runtime.derived_load_argument || "Unavailable (assignment is not a loadable remote path)";
+            }
+            if (outcome) {
+              outcome.textContent = runtime.latest_load_validation ? runtime.latest_load_validation.outcome : "not_attempted";
+            }
+            if (ready) {
+              ready.textContent = runtime.readiness && runtime.readiness.ready_for_play ? "Yes" : "No";
+            }
+            if (response) {
+              const loadResponse = runtime.latest_load_validation && runtime.latest_load_validation.raw_dashboard_response;
+              response.textContent = loadResponse || "No dashboard load response recorded yet.";
+            }
+            if (validatedAt) {
+              const stamp = runtime.latest_load_validation && runtime.latest_load_validation.validated_at_utc;
+              validatedAt.textContent = stamp || "not_recorded";
+            }
+          }
         }
 
         async function refreshStatus() {

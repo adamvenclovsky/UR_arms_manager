@@ -4,19 +4,8 @@ import shutil
 from pathlib import Path
 
 
-class PayloadResolutionError(Exception):
+class MissingPayloadError(Exception):
     pass
-
-
-class MissingPayloadError(PayloadResolutionError):
-    pass
-
-
-class AmbiguousPayloadError(PayloadResolutionError):
-    pass
-
-
-DEFAULT_LIBRARY_DIRS = ("uploaded", "robot1", "robot2", "robot3")
 
 
 class LibraryStorage:
@@ -25,14 +14,6 @@ class LibraryStorage:
 
     def ensure(self) -> None:
         self.programs_root.mkdir(parents=True, exist_ok=True)
-        for dirname in DEFAULT_LIBRARY_DIRS:
-            (self.programs_root / dirname).mkdir(parents=True, exist_ok=True)
-
-    def program_dir(self, program_id: str) -> Path:
-        return self.resolve_path(program_id)
-
-    def manifest_path(self, program_id: str) -> Path:
-        return self.program_dir(program_id) / "manifest.yaml"
 
     def resolve_path(self, relative_path: str | Path = "") -> Path:
         self.ensure()
@@ -51,8 +32,6 @@ class LibraryStorage:
         refs: list[str] = []
         for path in self.programs_root.rglob("*"):
             if not path.is_file():
-                continue
-            if path.name == "manifest.yaml":
                 continue
             refs.append(self.relative_path(path))
         return sorted(refs)
@@ -109,31 +88,12 @@ class LibraryStorage:
             shutil.copy2(source, destination)
         return destination
 
-    def resolve_payload_file(
-        self, reference: str, stored_filename: str | None = None
-    ) -> Path:
+    def resolve_payload_file(self, reference: str) -> Path:
         path = self.resolve_path(reference)
         if path.exists() and path.is_file():
-            if path.name == "manifest.yaml":
-                raise MissingPayloadError(f"Path points to metadata, not payload: {path}")
             return path
-
         if path.exists() and path.is_dir():
-            if stored_filename:
-                candidate = path / stored_filename
-                if candidate.exists() and candidate.is_file():
-                    return candidate
-            payload_files = sorted(
-                entry for entry in path.iterdir() if entry.is_file() and entry.name != "manifest.yaml"
-            )
-            if len(payload_files) == 1:
-                return payload_files[0]
-            if not payload_files:
-                raise MissingPayloadError(f"No payload file found in library directory: {path}")
-            payload_names = ", ".join(entry.name for entry in payload_files)
-            raise AmbiguousPayloadError(
-                f"Multiple payload files found in library directory: {payload_names}"
-            )
+            raise MissingPayloadError(f"Library path is a directory, not a file: {path}")
 
         raise MissingPayloadError(f"Library path not found: {path}")
 

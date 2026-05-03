@@ -7,7 +7,7 @@ robots:
     ssh_username: root
     ssh_password: easybot
     enabled: true
-    assigned_program: /programs/hello.script
+    assigned_program: /ursim/programs.UR5/zaboj_fiala_program/zaboj_fiala_program.urp
   robot2:
     host: 127.0.0.1
     dashboard_port: 29992

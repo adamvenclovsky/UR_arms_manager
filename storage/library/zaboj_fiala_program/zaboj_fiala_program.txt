@@ -1,0 +1,72 @@
+ Program
+   Variables Setup
+   BeforeStart
+     Gripper Reset and Activate
+     MoveJ
+       Waypoint_1
+     Wait Sensor_vzadu=HI
+   Robot Program
+     MoveJ
+       Waypoint_2
+     Wait Sensor_vzadu=HI
+     Gripper Close (1)
+     MoveL
+       Waypoint_15
+       var_1≔force()
+       MoveL
+         Waypoint_4
+       If var_1>5
+         MoveL
+           Gripper Open (1)
+           Waypoint_5
+           Gripper Close (1)
+           SetPayloadNode: {PayloadReferenceComponent; InstallationPayloadComponent name=Payload_brick; contributorInfo=com.ur.polyscope.payload.common.InstallationPayloadComponent$1@50a04d; mass=1.18 kg; centerOfGravity=(0.003, -0.002, 0.05); Ixx=0.002028, Iyy=0.002028, Izz=0.002028, Ixy=0.000000, Ixz=0.000000, Iyz=0.000000, transitionTime: 0.05 s}
+           Waypoint_6
+         MoveJ
+           Waypoint_7
+         MoveL
+           Waypoint_9
+           Gripper Open (1)
+           SetPayloadNode: {PayloadReferenceComponent; InstallationPayloadComponent name=Payload_Empty; contributorInfo=com.ur.polyscope.payload.common.InstallationPayloadComponent$1@50a04d; mass=1.11 kg; centerOfGravity=(0.0, 0.0, 0.054); Ixx=0.001832, Iyy=0.001832, Izz=0.001832, Ixy=0.000000, Ixz=0.000000, Iyz=0.000000, transitionTime: 0.05 s}
+           Waypoint_7
+           Gripper Close (1)
+           MoveL
+             Waypoint_11
+             Waypoint_12
+             Waypoint_13
+             Waypoint_14
+       Else
+         MoveL
+           Waypoint_8
+           Gripper Open (1)
+           Waypoint_10
+           Gripper Close (1)
+           SetPayloadNode: {PayloadReferenceComponent; InstallationPayloadComponent name=Payload_brick; contributorInfo=com.ur.polyscope.payload.common.InstallationPayloadComponent$1@50a04d; mass=1.18 kg; centerOfGravity=(0.003, -0.002, 0.05); Ixx=0.002028, Iyy=0.002028, Izz=0.002028, Ixy=0.000000, Ixz=0.000000, Iyz=0.000000, transitionTime: 0.05 s}
+           Waypoint_8
+           MoveJ
+             Waypoint_3
+           Pallet_1
+             Patterns
+               Grid_Pattern_1
+                 CornerItem_1
+                 CornerItem_2
+                 CornerItem_3
+                 CornerItem_4
+             Layers
+             At Each Item
+               Generated Movements
+                 MoveJ
+                   Approach
+                 MoveL
+                   ToolActionPoint
+                 Tool action
+                   Gripper Open (1)
+                   SetPayloadNode: {PayloadReferenceComponent; InstallationPayloadComponent name=Payload_Empty; contributorInfo=com.ur.polyscope.payload.common.InstallationPayloadComponent$1@50a04d; mass=1.11 kg; centerOfGravity=(0.0, 0.0, 0.054); Ixx=0.001832, Iyy=0.001832, Izz=0.001832, Ixy=0.000000, Ixz=0.000000, Iyz=0.000000, transitionTime: 0.05 s}
+                 MoveL
+                   Exit_1
+   Thread_1
+     Set Dopravnik=On
+     Wait Sensor_vzadu=HI
+     Set Dopravnik=Off
+     Wait Sensor_vzadu=LO
+     Wait: 1.0

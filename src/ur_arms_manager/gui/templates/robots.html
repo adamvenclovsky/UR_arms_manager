@@ -52,8 +52,16 @@
               <dd>{{ robot.ssh_port }}</dd>
             </div>
             <div class="detail-list-full">
-              <dt>Assigned Program</dt>
+              <dt>Assigned Runtime Path</dt>
               <dd class="program-value">{{ robot.assigned_program }}</dd>
+            </div>
+            <div>
+              <dt>Assignment Type</dt>
+              <dd>{{ robot.assignment_kind_label }}</dd>
+            </div>
+            <div class="detail-list-full">
+              <dt>Load Context</dt>
+              <dd class="status-detail">{{ robot.assignment_runtime_note }}</dd>
             </div>
           </dl>
 

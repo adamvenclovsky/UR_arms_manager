@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from ur_arms_manager.models import RobotConfig
-from ur_arms_manager.services.library_manager import LibraryManager
+from ur_arms_manager.services.library_manager import LibraryError, LibraryManager
 from ur_arms_manager.services.robot_manager import RobotManager
 
 
@@ -28,15 +28,23 @@ class CompatibilityService:
         findings: list[str] = []
         severity = 0  # 0=ok, 1=warning, 2=blocked
 
-        item = self.library.inspect_item_enriched(program_id)
+        item_available = True
+        try:
+            item = self.library.inspect_item_enriched(program_id)
+        except LibraryError as exc:
+            item_available = False
+            item = {"extension": "", "urp_analysis": {}}
+            severity = max(severity, 2)
+            findings.append(f"Stored library file is missing: {exc}")
         extension = str(item.get("extension", "")).lower()
 
         # 1) Stored file existence (hard blocker).
-        try:
-            _ = self.library.get_stored_file(program_id)
-        except Exception as exc:
-            severity = max(severity, 2)
-            findings.append(f"Stored library file is missing: {exc}")
+        if item_available:
+            try:
+                _ = self.library.get_stored_file(program_id)
+            except Exception as exc:
+                severity = max(severity, 2)
+                findings.append(f"Stored library file is missing: {exc}")
 
         # 2) File extension baseline.
         if extension == "script":

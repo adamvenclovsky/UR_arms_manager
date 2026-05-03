@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="page-intro">
+    <p class="eyebrow">Transfer & Assignment Flow</p>
+    <h1>Guided bundle-first transfer.</h1>
+    <p class="lead">
+      This guided flow is a shortcut, not the only workflow. Direct work from Library and Robot Workspace remains fully valid.
+    </p>
+  </section>
+
+  {% if flash_message %}
+    <section class="message-panel {% if flash_kind == 'error' %}message-panel-error{% else %}message-panel-success{% endif %}">
+      <p class="card-label">Transfer Result</p>
+      <h2>{{ flash_message }}</h2>
+    </section>
+  {% endif %}
+
+  <section class="workspace-grid">
+    <section class="card workspace-full-panel">
+      <p class="card-label">Guided Steps</p>
+      <h2>Deploy -> Assign -> Validate -> Continue</h2>
+      <p class="muted-note">Transfer is bundle-first. Dashboard Load/Play/Stop remains in Robot Workspace.</p>
+      <form method="post" action="{{ url_for('transfer_execute') }}" class="stack-form">
+        <p class="card-label">Step 1 · Select Local Bundle or File</p>
+        <label class="form-field">
+          <span>Select bundle or file from local Library</span>
+          <select name="source_path" required>
+            {% for directory in directory_sources %}
+              {% if directory.classification in ["deployable_bundle", "warning_bundle"] %}
+                {% set prefix = "[Bundle]" %}
+              {% elif directory.classification == "invalid_bundle" %}
+                {% set prefix = "[Invalid Bundle]" %}
+              {% else %}
+                {% set prefix = "[Folder]" %}
+              {% endif %}
+              <option value="{{ directory.path }}" {% if selected_source == directory.path %}selected{% endif %}>{{ prefix }} {{ directory.path }}</option>
+            {% endfor %}
+            {% for file in file_sources %}
+              <option value="{{ file.path }}" {% if selected_source == file.path %}selected{% endif %}>[File] {{ file.path }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        {% if selected_error %}
+          <p class="action-note action-note-warning">Selection detail failed: {{ selected_error }}</p>
+        {% elif selected_summary %}
+          <div class="library-bundle-summary">
+            <p class="card-label">Selected Source Detail</p>
+            <p class="program-value">{{ selected_summary.library_path }}</p>
+            {% if selected_source_meta %}
+              <p>Classification: <strong>{{ selected_source_meta.classification_label }}</strong></p>
+            {% endif %}
+            <p>Type: {{ selected_summary.type_label }}</p>
+            {% if selected_summary.bundle_summary %}
+              <p>Primary .urp: <span class="program-value">{{ selected_summary.bundle_summary.primary_urp_path or "Not detected" }}</span></p>
+              {% if selected_summary.bundle_summary.primary_urp_filename %}
+                <p>Primary .urp original: <span class="program-value">{{ selected_summary.bundle_summary.primary_urp_original_filename or selected_summary.bundle_summary.primary_urp_filename }}</span></p>
+                <p>Primary .urp runtime-safe: <span class="program-value">{{ selected_summary.bundle_summary.primary_urp_runtime_safe_filename or selected_summary.bundle_summary.primary_urp_filename }}</span></p>
+              {% endif %}
+              <p>Readiness: <strong>{{ selected_summary.bundle_summary.readiness_state }}</strong></p>
+              {% if selected_summary.bundle_summary.warnings %}
+                <ul class="bundle-warning-list">
+                  {% for warning in selected_summary.bundle_summary.warnings %}
+                    <li>{{ warning }}</li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+              {% if selected_summary.bundle_summary.normalization_note %}
+                <p class="action-note">{{ selected_summary.bundle_summary.normalization_note }}</p>
+              {% endif %}
+            {% endif %}
+            {% if selected_source_block_reason %}
+              <p class="action-note action-note-warning">{{ selected_source_block_reason }}</p>
+            {% endif %}
+          </div>
+        {% endif %}
+
+        <p class="card-label">Step 2 · Choose Target Robot</p>
+        {% if robot_options %}
+          <label class="form-field">
+            <span>Select robot</span>
+            <select name="robot_name" required>
+              {% for robot in robot_options %}
+                <option value="{{ robot.name }}" {% if selected_robot == robot.name %}selected{% endif %}>{{ robot.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button
+            type="submit"
+            formaction="{{ url_for('transfer') }}"
+            formmethod="get"
+            class="action-button action-button-secondary"
+          >
+            Open Robot Storage Browser
+          </button>
+        {% else %}
+          <p class="action-note action-note-warning">
+            {% if robot_options_error %}
+              Robot selection unavailable: {{ robot_options_error }}
+            {% else %}
+              No robots available.
+            {% endif %}
+          </p>
+        {% endif %}
+
+        <p class="card-label">Step 3 · Select Destination Parent Folder (Primary)</p>
+        {% if transfer_file_browser %}
+          <section class="library-bundle-summary transfer-remote-panel">
+            <p class="card-label">Remote Robot Storage Browser</p>
+            <p>Selected robot: <span class="program-value">{{ selected_robot }}</span></p>
+            <p>Current remote path: <span class="program-value">{{ transfer_file_browser.current_dir }}</span></p>
+            <p class="muted-note">Robot-side SSH/SFTP storage browser. This is separate from dashboard runtime load semantics.</p>
+            {% if transfer_runtime_name_warning %}
+              <p class="action-note action-note-warning">{{ transfer_runtime_name_warning }}</p>
+            {% endif %}
+            {% if transfer_file_browser.fallback_notice %}
+              <p class="action-note">{{ transfer_file_browser.fallback_notice }}</p>
+            {% endif %}
+            {% if transfer_file_browser.parent_dir %}
+              <p>
+                <a class="card-link" href="{{ url_for('transfer') }}?source_path={{ selected_source or '' }}&robot_name={{ selected_robot or '' }}&remote_dir={{ transfer_file_browser.parent_dir }}">Go Up One Level</a>
+              </p>
+            {% endif %}
+            {% if transfer_file_browser.listing_error %}
+              <p class="action-note action-note-warning">Remote browser error: {{ transfer_file_browser.listing_error }}</p>
+            {% elif transfer_file_browser.entries %}
+              <div class="library-browser-list">
+                {% for entry in transfer_file_browser.entries %}
+                  <article class="library-browser-row {% if selected_remote_path == entry.remote_path %}library-browser-row-active{% endif %}">
+                    <div class="library-browser-main">
+                      {% if entry.kind == "directory" %}
+                        <a class="library-browser-primary" href="{{ url_for('transfer') }}?source_path={{ selected_source or '' }}&robot_name={{ selected_robot or '' }}&remote_dir={{ entry.remote_path }}">{{ entry.name }}</a>
+                      {% else %}
+                        <a class="library-browser-primary" href="{{ url_for('transfer') }}?source_path={{ selected_source or '' }}&robot_name={{ selected_robot or '' }}&remote_dir={{ transfer_file_browser.current_dir }}&selected_remote_path={{ entry.remote_path }}">{{ entry.name }}</a>
+                      {% endif %}
+                      <span class="type-badge {{ entry.type_class }}">{{ entry.kind_label if entry.kind == "directory" else '.' ~ entry.extension if entry.extension else 'File' }}</span>
+                      {% if transfer_result and transfer_result.remote_target_path == entry.remote_path %}
+                        <span class="type-badge type-bundle">Latest Deploy Target</span>
+                      {% endif %}
+                      {% if transfer_result and transfer_result.deployed_primary_urp == entry.remote_path %}
+                        <span class="type-badge type-urp">Deployed Primary .urp</span>
+                      {% endif %}
+                    </div>
+                    <div class="library-browser-meta">
+                      <span>{{ entry.remote_path }}</span>
+                    </div>
+                    {% if entry.kind == "directory" %}
+                      <div class="library-browser-links">
+                        <a href="{{ url_for('transfer') }}?source_path={{ selected_source or '' }}&robot_name={{ selected_robot or '' }}&remote_dir={{ entry.remote_path }}&selected_remote_path={{ entry.remote_path }}">Use as Destination Parent</a>
+                        <a href="{{ url_for('transfer') }}?source_path={{ selected_source or '' }}&robot_name={{ selected_robot or '' }}&remote_dir={{ entry.remote_path }}">Open Folder</a>
+                      </div>
+                    {% endif %}
+                  </article>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="muted-note">This remote directory is empty.</p>
+            {% endif %}
+            {% if transfer_selected_remote_entry %}
+              <p class="action-note">
+                Selected remote item context: <span class="program-value">{{ transfer_selected_remote_entry.remote_path }}</span>
+              </p>
+            {% endif %}
+          </section>
+        {% else %}
+          <p class="action-note action-note-warning">
+            Select one robot and open the robot storage browser before deploy.
+          </p>
+        {% endif %}
+
+        <p class="card-label">Step 3b · Advanced Fallback Override</p>
+        <label class="form-field">
+          <span>Manual destination parent folder (advanced)</span>
+          <input type="text" name="remote_dir" value="{{ selected_remote_dir or default_remote_dir }}" />
+        </label>
+        <p class="muted-note">Use manual typing only when browser selection is not enough.</p>
+
+        <p class="card-label">Step 4 · Final Deploy Preview</p>
+        <div class="library-bundle-summary">
+          <p>Selected source: <span class="program-value">{{ selected_source or "not_selected" }}</span></p>
+          <p>Source kind: <strong>{{ selected_source_meta.classification_label if selected_source_meta else "unknown" }}</strong></p>
+          <p>Destination parent folder: <span class="program-value">{{ selected_remote_dir or default_remote_dir }}</span></p>
+          <p>Final remote deploy path: <span class="program-value">{{ predicted_remote_target_path or "not_available" }}</span></p>
+          <p>Primary .urp candidate after deploy: <span class="program-value">{{ predicted_remote_primary_urp or "not_available" }}</span></p>
+          <p>Assignment after deploy: optional (checkbox below)</p>
+          <p>Validation after assign: optional (checkbox below)</p>
+          {% if nested_deploy_warning %}
+            <p class="action-note action-note-warning">{{ nested_deploy_warning }}</p>
+            <label class="form-field form-checkbox">
+              <input type="checkbox" name="allow_nested_bundle_deploy" value="1" />
+              <span>I understand and intentionally allow nested bundle deploy path.</span>
+            </label>
+          {% endif %}
+        </div>
+
+        <p class="card-label">Step 5 · Assignment and Validation</p>
+        {% if predicted_remote_primary_urp %}
+          <p class="action-note">Predicted assign target after deploy: <span class="program-value">{{ predicted_remote_primary_urp }}</span></p>
+        {% elif selected_summary and selected_summary.extension == "urp" %}
+          <p class="action-note">URP file can be assigned after deploy if enabled below.</p>
+        {% else %}
+          <p class="action-note">No deterministic runtime assign target from current selection.</p>
+        {% endif %}
+        <label class="form-field form-checkbox">
+          <input type="checkbox" name="assign_after_deploy" value="1" />
+          <span>Assign deployed primary/URP as runtime target</span>
+        </label>
+        <label class="form-field form-checkbox">
+          <input type="checkbox" name="validate_load_after_assign" value="1" />
+          <span>Run dashboard load validation after assignment</span>
+        </label>
+
+        <p class="card-label">Step 6 · Deploy</p>
+        <button
+          type="submit"
+          class="action-button"
+          {% if not robot_options or (selected_source and not selected_source_deployable) or (nested_deploy_detected) %}disabled{% endif %}
+        >
+          Run Guided Deploy / Assign / Validate
+        </button>
+        {% if selected_source and not selected_source_deployable %}
+          <p class="action-note action-note-warning">Deploy is blocked for selected source. {{ selected_source_block_reason }}</p>
+        {% endif %}
+        {% if nested_deploy_detected %}
+          <p class="action-note action-note-warning">Nested deploy protection is active. Confirm override to continue.</p>
+        {% endif %}
+      </form>
+    </section>
+
+    {% if transfer_result and transfer_result.source_path %}
+      <section class="card workspace-full-panel">
+        <p class="card-label">Workflow Result</p>
+        <h2>Deploy / Assign / Validate outcome</h2>
+        <dl class="detail-list library-detail-list">
+          <div class="detail-list-full">
+            <dt>Source</dt>
+            <dd class="program-value">{{ transfer_result.source_kind or "unknown" }}: {{ transfer_result.source_path }}</dd>
+          </div>
+          <div>
+            <dt>Robot</dt>
+            <dd>{{ transfer_result.robot_name or "unknown" }}</dd>
+          </div>
+          <div class="detail-list-full">
+            <dt>Deployed Remote Target</dt>
+            <dd class="program-value">{{ transfer_result.remote_target_path or "not_recorded" }}</dd>
+          </div>
+          <div class="detail-list-full">
+            <dt>Deployed Primary .urp</dt>
+            <dd class="program-value">{{ transfer_result.deployed_primary_urp or "none" }}</dd>
+          </div>
+          <div>
+            <dt>Assignment Performed</dt>
+            <dd>{{ transfer_result.assignment_status or ("performed" if transfer_result.assignment_performed else "skipped") }}</dd>
+          </div>
+          <div class="detail-list-full">
+            <dt>Assigned Runtime Path</dt>
+            <dd class="program-value">{{ transfer_result.assigned_runtime_path or "unchanged" }}</dd>
+          </div>
+          <div class="detail-list-full">
+            <dt>Previous Assigned Runtime Path</dt>
+            <dd class="program-value">{{ transfer_result.previous_assigned_runtime_path or "none" }}</dd>
+          </div>
+          <div>
+            <dt>Validation Performed</dt>
+            <dd>{{ transfer_result.validation_status or ("performed" if transfer_result.validation_performed else "skipped") }}</dd>
+          </div>
+          <div>
+            <dt>Validation Outcome</dt>
+            <dd>{{ transfer_result.validation_outcome or "not_run" }}</dd>
+          </div>
+          <div>
+            <dt>Ready for Play</dt>
+            <dd>{{ "Yes" if transfer_result.validation_ready_for_play else "No" }}</dd>
+          </div>
+          <div class="detail-list-full">
+            <dt>Derived Dashboard Load Argument</dt>
+            <dd class="program-value">{{ transfer_result.validation_derived_argument or "not_available" }}</dd>
+          </div>
+          <div class="detail-list-full">
+            <dt>Last Dashboard Response</dt>
+            <dd class="program-value">{{ transfer_result.validation_response or "not_recorded" }}</dd>
+          </div>
+        </dl>
+        {% if transfer_result.validation_outcome == "unsafe_runtime_path" %}
+          <p class="action-note action-note-warning">
+            Cannot validate dashboard load because the derived load argument contains spaces or unsafe characters.
+            Prepare a runtime-safe bundle first.
+          </p>
+        {% endif %}
+        {% if transfer_result.result_note %}
+          <p class="action-note">{{ transfer_result.result_note }}</p>
+        {% endif %}
+        {% if transfer_result.next_action %}
+          <p class="action-note"><strong>Next recommended action:</strong> {{ transfer_result.next_action }}</p>
+        {% endif %}
+        <p class="action-note">Step 7: continue to Robot Workspace for dashboard Load / Play / Stop.</p>
+        {% if transfer_result.continue_url %}
+          <p><a class="action-button action-button-link" href="{{ transfer_result.continue_url }}">Continue to Robot Workspace</a></p>
+        {% endif %}
+      </section>
+    {% endif %}
+  </section>
+{% endblock %}

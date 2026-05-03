@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="page-intro">
+    <p class="eyebrow">Fleet Overview · Phase 1 GUI Foundation</p>
+    <h1>Operational truth across robots.</h1>
+    <p class="lead">
+      This overview is status-first and action-oriented: connection, safety, assignment, runtime load truth, and the next operator step.
+    </p>
+  </section>
+
+  {% if error_message %}
+    <section class="message-panel message-panel-error">
+      <p class="card-label">Config Error</p>
+      <h2>Fleet overview could not be loaded.</h2>
+      <p>{{ error_message }}</p>
+    </section>
+  {% elif overview_cards %}
+    {% if overview_alerts %}
+      <section class="message-panel message-panel-error">
+        <p class="card-label">Alert Rail</p>
+        <h2>Attention required before runtime actions.</h2>
+        <ul class="bundle-warning-list">
+          {% for alert in overview_alerts %}
+            <li>{{ alert }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
+    <section class="robot-grid" aria-label="Fleet overview cards">
+      {% for robot in overview_cards %}
+        <article class="card robot-card">
+          <div class="robot-card-header">
+            <div>
+              <p class="card-label">Robot</p>
+              <h2>{{ robot.name }}</h2>
+              <a class="card-link" href="{{ url_for('robot_workspace', robot_name=robot.name) }}">Jump to workspace</a>
+            </div>
+            <span class="status-badge {{ robot.status.state_class }}">{{ robot.status.state_label }}</span>
+          </div>
+
+          <dl class="detail-list">
+            <div>
+              <dt>Robot Mode</dt>
+              <dd>{{ robot.status.robotmode }}</dd>
+            </div>
+            <div>
+              <dt>Safety</dt>
+              <dd>{{ robot.status.safety_status }}</dd>
+            </div>
+            <div class="detail-list-full">
+              <dt>Assigned Runtime Target</dt>
+              <dd class="program-value">{{ robot.assigned_program }}</dd>
+            </div>
+            <div>
+              <dt>Last Load Outcome</dt>
+              <dd>{{ robot.last_load_outcome }}</dd>
+            </div>
+            <div class="detail-list-full">
+              <dt>Next Suggested Action</dt>
+              <dd>{{ robot.next_action }}</dd>
+            </div>
+          </dl>
+        </article>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section class="message-panel">
+      <p class="card-label">Empty Fleet</p>
+      <h2>No robots are configured.</h2>
+      <p>Add robot entries in <code>config/robots.yaml</code> and reload this page.</p>
+    </section>
+  {% endif %}
+{% endblock %}
