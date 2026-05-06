@@ -11,6 +11,7 @@ class RobotConfig:
     host: str
     dashboard_port: int
     script_port: int
+    rtde_port: int = 30004
     ssh_port: int = 22
     ssh_username: str = "root"
     ssh_password: str = "easybot"

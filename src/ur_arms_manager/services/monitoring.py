@@ -10,10 +10,19 @@ def get_robot_monitoring_status(
     dashboard_client: DashboardClient | None = None,
     rtde_client_factory=RTDEClient,
 ) -> RobotStatus:
+    if not robot.enabled:
+        return RobotStatus(
+            name=robot.name,
+            connected=False,
+            assigned_program=robot.assigned_program,
+            detail="Robot is disabled in config.",
+            monitoring_source="disabled",
+        )
+
     rtde_error_detail = ""
 
     try:
-        rtde_status = rtde_client_factory(robot.host).read_status()
+        rtde_status = rtde_client_factory(robot.host, robot.rtde_port).read_status()
         if rtde_status.connected:
             return RobotStatus(
                 name=robot.name,

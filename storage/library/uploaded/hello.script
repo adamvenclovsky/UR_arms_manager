@@ -1,4 +1,0 @@
-def hello():
-  popup("Hello from script", "UAM", False, False, blocking=True)
-end
-hello()

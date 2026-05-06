@@ -111,6 +111,21 @@
               <p class="action-note">{{ robot.load_disabled_reason }}</p>
             {% endif %}
 
+            <dl class="detail-list library-detail-list runtime-target-summary">
+              <div class="detail-list-full">
+                <dt>Assigned Runtime Program</dt>
+                <dd class="program-value">{{ robot.assigned_program or "None assigned" }}</dd>
+              </div>
+              <div>
+                <dt>Assignment Type</dt>
+                <dd>{{ robot.assignment_kind_label }}</dd>
+              </div>
+              <div>
+                <dt>Load Ready</dt>
+                <dd>{% if robot.can_load %}Yes{% else %}No{% endif %}</dd>
+              </div>
+            </dl>
+
             <div class="action-grid">
               <button type="button" class="action-button" data-action="power-on" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Power On</button>
               <button type="button" class="action-button" data-action="brake-release" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Brake Release</button>

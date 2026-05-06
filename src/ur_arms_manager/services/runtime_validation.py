@@ -170,15 +170,8 @@ def classify_dashboard_load_response(
             "file_not_found",
             ["Dashboard could not resolve the requested program path."],
         )
-    if (
-        "installation" in normalized
-        or "safety" in normalized
-        or "protective stop" in normalized
-    ):
-        return (
-            "installation_or_safety_block",
-            ["Dashboard response indicates installation/safety/runtime preconditions are not met."],
-        )
+    if "loading program" in normalized or "loaded program" in normalized:
+        return "success", notes
     if (
         "remote control" in normalized
         or "manual mode" in normalized
@@ -188,8 +181,15 @@ def classify_dashboard_load_response(
             "wrong_mode_or_remote_control_issue",
             ["Dashboard response indicates remote-control mode is not ready for load/play."],
         )
-    if "loading program" in normalized or "loaded program" in normalized:
-        return "success", notes
+    if (
+        "installation" in normalized
+        or "safety" in normalized
+        or "protective stop" in normalized
+    ):
+        return (
+            "installation_or_safety_block",
+            ["Dashboard response indicates installation/safety/runtime preconditions are not met."],
+        )
     if (
         "error" in normalized
         or "failed" in normalized

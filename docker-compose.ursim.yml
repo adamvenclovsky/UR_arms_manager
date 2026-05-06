@@ -1,0 +1,34 @@
+services:
+  ursim1:
+    image: ursim-e-series-ssh
+    build:
+      context: ./ursim-ssh-image
+    container_name: ursim1
+    ports:
+      - "6080:6080"
+      - "2222:22"
+      - "29991:29999"
+      - "30021:30001"
+      - "30022:30002"
+      - "30023:30003"
+      - "30024:30004"
+      - "30025:30011"
+    volumes:
+      - ./ursim-urcaps:/urcaps
+
+  ursim2:
+    image: ursim-e-series-ssh
+    build:
+      context: ./ursim-ssh-image
+    container_name: ursim2
+    ports:
+      - "6081:6080"
+      - "2223:22"
+      - "29992:29999"
+      - "30121:30001"
+      - "30122:30002"
+      - "30123:30003"
+      - "30124:30004"
+      - "30125:30011"
+    volumes:
+      - ./ursim-urcaps:/urcaps

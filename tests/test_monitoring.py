@@ -20,8 +20,9 @@ def test_monitoring_uses_rtde_when_available() -> None:
             raise AssertionError("dashboard should not be used")
 
     class FakeRTDEClient:
-        def __init__(self, host: str):
+        def __init__(self, host: str, port: int):
             assert host == "127.0.0.1"
+            assert port == 30004
 
         def read_status(self):
             class Status:
@@ -45,6 +46,29 @@ def test_monitoring_uses_rtde_when_available() -> None:
     assert status.monitoring_source == "rtde"
 
 
+def test_monitoring_does_not_poll_disabled_robot() -> None:
+    class FakeDashboardClient:
+        def get_robotmode(self) -> str:
+            raise AssertionError("dashboard should not be used")
+
+    class FakeRTDEClient:
+        def __init__(self, _host: str, _port: int):
+            raise AssertionError("rtde should not be used")
+
+    robot = _robot()
+    robot.enabled = False
+
+    status = get_robot_monitoring_status(
+        robot,
+        dashboard_client=FakeDashboardClient(),
+        rtde_client_factory=FakeRTDEClient,
+    )
+
+    assert status.connected is False
+    assert status.monitoring_source == "disabled"
+    assert status.detail == "Robot is disabled in config."
+
+
 def test_monitoring_falls_back_to_dashboard_when_rtde_fails() -> None:
     class FakeDashboardClient:
         def get_robotmode(self) -> str:
@@ -57,7 +81,7 @@ def test_monitoring_falls_back_to_dashboard_when_rtde_fails() -> None:
             return "NORMAL"
 
     class FakeRTDEClient:
-        def __init__(self, _host: str):
+        def __init__(self, _host: str, _port: int):
             pass
 
         def read_status(self):
@@ -88,7 +112,7 @@ def test_monitoring_returns_clean_failure_when_both_sources_fail() -> None:
             return "unknown"
 
     class FakeRTDEClient:
-        def __init__(self, _host: str):
+        def __init__(self, _host: str, _port: int):
             pass
 
         def read_status(self):

@@ -229,6 +229,27 @@ def test_play_and_stop_wrap_dashboard_failures(monkeypatch) -> None:
         assert "Stop selhal" in str(exc)
 
 
+def test_play_wraps_dashboard_rejection_response(monkeypatch) -> None:
+    class FakeDashboardClient:
+        def __init__(self, _host: str, _port: int):
+            pass
+
+        def play(self) -> str:
+            return "Failed to execute: play"
+
+    monkeypatch.setattr(robot_manager, "DashboardClient", FakeDashboardClient)
+    manager = robot_manager.RobotManager(_robot())
+
+    try:
+        manager.play_program()
+        assert False, "Expected RuntimeError"
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "Play selhal" in message
+        assert "Dashboard rejected Play" in message
+        assert "Failed to execute: play" in message
+
+
 def test_power_commands_call_dashboard(monkeypatch) -> None:
     class FakeDashboardClient:
         def __init__(self, _host: str, _port: int):

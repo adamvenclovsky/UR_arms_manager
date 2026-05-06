@@ -122,19 +122,25 @@ class RobotManager:
 
     def stop_program(self) -> str:
         try:
-            return self.dashboard.stop()
+            response = self.dashboard.stop()
+            self._raise_for_dashboard_rejection("Stop", response)
+            return response
         except Exception as exc:
             raise RuntimeError(f"Stop selhal pro robot '{self.robot.name}': {exc}") from exc
 
     def play_program(self) -> str:
         try:
-            return self.dashboard.play()
+            response = self.dashboard.play()
+            self._raise_for_dashboard_rejection("Play", response)
+            return response
         except Exception as exc:
             raise RuntimeError(f"Play selhal pro robot '{self.robot.name}': {exc}") from exc
 
     def power_on(self) -> str:
         try:
-            return self.dashboard.power_on()
+            response = self.dashboard.power_on()
+            self._raise_for_dashboard_rejection("Power-on", response)
+            return response
         except Exception as exc:
             raise RuntimeError(
                 f"Power-on selhal pro robot '{self.robot.name}': {exc}"
@@ -142,7 +148,9 @@ class RobotManager:
 
     def brake_release(self) -> str:
         try:
-            return self.dashboard.brake_release()
+            response = self.dashboard.brake_release()
+            self._raise_for_dashboard_rejection("Brake-release", response)
+            return response
         except Exception as exc:
             raise RuntimeError(
                 f"Brake-release selhal pro robot '{self.robot.name}': {exc}"
@@ -150,7 +158,9 @@ class RobotManager:
 
     def power_off(self) -> str:
         try:
-            return self.dashboard.power_off()
+            response = self.dashboard.power_off()
+            self._raise_for_dashboard_rejection("Power-off", response)
+            return response
         except Exception as exc:
             raise RuntimeError(
                 f"Power-off selhal pro robot '{self.robot.name}': {exc}"
@@ -276,3 +286,15 @@ class RobotManager:
     def _dashboard_load_was_rejected(self, response: str) -> bool:
         outcome, _notes = classify_dashboard_load_response(response)
         return outcome != "success"
+
+    def _raise_for_dashboard_rejection(self, action_label: str, response: str) -> None:
+        normalized = str(response or "").strip().lower()
+        rejection_markers = (
+            "failed to execute",
+            "could not understand",
+            "not allowed",
+            "not able",
+            "rejected",
+        )
+        if any(marker in normalized for marker in rejection_markers):
+            raise RuntimeError(f"Dashboard rejected {action_label}: {response}")

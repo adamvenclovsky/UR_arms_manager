@@ -44,6 +44,7 @@ class RobotRegistry:
                 host=item["host"],
                 dashboard_port=int(item["dashboard_port"]),
                 script_port=int(item["script_port"]),
+                rtde_port=int(item.get("rtde_port", 30004)),
                 ssh_port=int(item.get("ssh_port", 22)),
                 ssh_username=str(item.get("ssh_username", "root")),
                 ssh_password=str(item.get("ssh_password", "easybot")),

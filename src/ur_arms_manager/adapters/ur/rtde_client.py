@@ -24,6 +24,12 @@ class RTDEClient:
         self.port = port
 
     def read_status(self) -> RTDESpikeStatus:
+        if self.port != 30004:
+            raise RTDEError(
+                "RTDEReceiveInterface does not support custom forwarded ports; "
+                f"configured RTDE port is {self.port}."
+            )
+
         try:
             interface_cls = self._load_interface_class()
             receiver = interface_cls(self.host)

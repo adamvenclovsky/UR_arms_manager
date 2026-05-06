@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import importlib.util
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import tempfile
 from typing import Any, Callable
@@ -142,6 +142,7 @@ def _serialize_robot_card(
         "host": robot.host,
         "dashboard_port": robot.dashboard_port,
         "script_port": robot.script_port,
+        "rtde_port": robot.rtde_port,
         "ssh_port": robot.ssh_port,
         "enabled": robot.enabled,
         "assigned_program": assignment["display"],
@@ -360,6 +361,52 @@ def _parent_library_dir(relative_dir: str) -> str | None:
 def _join_library_path(base_dir: str, name: str) -> str:
     base = _normalize_library_dir(base_dir)
     return name if not base else f"{base}/{name}"
+
+
+def _build_library_pending_operation(
+    operation: str | None,
+    source_path: str | None,
+    current_dir: str,
+) -> dict[str, str] | None:
+    operation = str(operation or "").strip().lower()
+    source_path = str(source_path or "").strip().strip("/")
+    if operation not in {"move", "copy"} or not source_path:
+        return None
+
+    source_name = Path(source_path).name
+    destination_path = _join_library_path(current_dir, source_name)
+    query = urlencode({"operation": operation, "operation_source": source_path})
+    return {
+        "operation": operation,
+        "label": "Move" if operation == "move" else "Copy",
+        "source_path": source_path,
+        "source_name": source_name,
+        "destination_path": destination_path,
+        "query_suffix": f"&{query}",
+    }
+
+
+def _build_remote_pending_operation(
+    operation: str | None,
+    source_path: str | None,
+    current_dir: str,
+) -> dict[str, str] | None:
+    operation = str(operation or "").strip().lower()
+    source_path = str(source_path or "").strip()
+    if operation not in {"move", "copy"} or not source_path:
+        return None
+
+    source_name = PurePosixPath(source_path).name
+    destination_path = _join_remote_path(current_dir, source_name)
+    query = urlencode({"operation": operation, "operation_source": source_path})
+    return {
+        "operation": operation,
+        "label": "Move" if operation == "move" else "Copy",
+        "source_path": source_path,
+        "source_name": source_name,
+        "destination_path": destination_path,
+        "query_suffix": f"&{query}",
+    }
 
 
 def _serialize_library_entry(entry: dict[str, Any], current_dir: str) -> dict[str, Any]:
@@ -900,6 +947,11 @@ def create_app(
         flash_kind = request.query_params.get("flash_kind")
         flash_message = request.query_params.get("flash_message")
         remote_dir = _normalize_remote_dir(request.query_params.get("remote_dir"))
+        pending_operation = _build_remote_pending_operation(
+            request.query_params.get("operation"),
+            request.query_params.get("operation_source"),
+            remote_dir,
+        )
 
         try:
             robot = registry.get_robot(robot_name)
@@ -932,6 +984,11 @@ def create_app(
             if file_browser
             else ""
         )
+        pending_operation = _build_remote_pending_operation(
+            request.query_params.get("operation"),
+            request.query_params.get("operation_source"),
+            current_remote_dir or remote_dir,
+        )
         if assigned_runtime_path and current_remote_dir:
             assigned_under_current_dir = (
                 assigned_runtime_path == current_remote_dir
@@ -953,6 +1010,10 @@ def create_app(
                 "selected_remote_entry": selected_remote_entry,
                 "flash_kind": flash_kind,
                 "flash_message": flash_message,
+                "pending_operation": pending_operation,
+                "robot_operation_query": (
+                    pending_operation["query_suffix"] if pending_operation else ""
+                ),
                 "runtime_validation": runtime_validation_context,
                 "latest_script_run": latest_script_run,
                 "ursim_remote_root_profile": URSIM_REMOTE_ROOT_PROFILE,
@@ -1511,6 +1572,11 @@ def create_app(
         selected_entry = None
         selected_error = None
         robot_options, robot_options_error = _serialize_robot_options(registry)
+        pending_operation = _build_library_pending_operation(
+            request.query_params.get("operation"),
+            request.query_params.get("operation_source"),
+            current_dir,
+        )
 
         if selected_path:
             selected_path = str(selected_path).strip().strip("/")
@@ -1568,6 +1634,10 @@ def create_app(
                 "file_count": file_count,
                 "flash_kind": flash_kind,
                 "flash_message": flash_message,
+                "pending_operation": pending_operation,
+                "library_operation_query": (
+                    pending_operation["query_suffix"] if pending_operation else ""
+                ),
                 "robot_options": robot_options,
                 "robot_options_error": robot_options_error,
                 "default_robot_remote_dir": ROBOT_FILES_ROOT,
@@ -1599,6 +1669,8 @@ def create_app(
         flash_kind = request.query_params.get("flash_kind")
         flash_message = request.query_params.get("flash_message")
         selected_source = str(request.query_params.get("source_path") or "").strip().strip("/") or None
+        selected_source_dir = _normalize_library_dir(request.query_params.get("source_dir"))
+        source_browser_open = _parse_bool_query(request.query_params.get("source_browser"))
         selected_robot = str(request.query_params.get("robot_name") or "").strip() or None
         selected_remote_dir = _normalize_remote_dir(request.query_params.get("remote_dir"))
         selected_remote_path = str(request.query_params.get("selected_remote_path") or "").strip() or None
@@ -1608,6 +1680,7 @@ def create_app(
         source_options = [*directory_sources, *file_sources]
         selected_summary = None
         selected_error = None
+        transfer_library_browser = None
         predicted_remote_primary_urp = None
         predicted_remote_target_path = None
         transfer_file_browser = None
@@ -1629,8 +1702,33 @@ def create_app(
             if selected_source_meta
             else None
         )
+        selected_source_library_url = None
+        if selected_source:
+            selected_source_library_url = f"/library?{urlencode({'dir': _parent_library_dir(selected_source) or '', 'selected': selected_source})}"
         nested_deploy_warning = None
         nested_deploy_detected = False
+
+        if source_browser_open:
+            try:
+                raw_source_entries = library_manager.list_directory(selected_source_dir)
+                transfer_library_browser = {
+                    "current_dir": selected_source_dir,
+                    "current_dir_label": selected_source_dir or "/",
+                    "parent_dir": _parent_library_dir(selected_source_dir),
+                    "entries": [
+                        _serialize_library_entry(entry, selected_source_dir)
+                        for entry in raw_source_entries
+                    ],
+                    "listing_error": None,
+                }
+            except Exception as exc:
+                transfer_library_browser = {
+                    "current_dir": selected_source_dir,
+                    "current_dir_label": selected_source_dir or "/",
+                    "parent_dir": _parent_library_dir(selected_source_dir),
+                    "entries": [],
+                    "listing_error": str(exc),
+                }
 
         if selected_source:
             try:
@@ -1718,6 +1816,8 @@ def create_app(
                 "file_sources": file_sources,
                 "source_options": source_options,
                 "selected_source": selected_source,
+                "selected_source_dir": selected_source_dir,
+                "selected_source_library_url": selected_source_library_url,
                 "selected_robot": selected_robot,
                 "selected_summary": selected_summary,
                 "selected_source_meta": selected_source_meta,
@@ -1729,6 +1829,7 @@ def create_app(
                 "predicted_remote_primary_urp": predicted_remote_primary_urp,
                 "nested_deploy_detected": nested_deploy_detected,
                 "nested_deploy_warning": nested_deploy_warning,
+                "transfer_library_browser": transfer_library_browser,
                 "selected_remote_path": selected_remote_path,
                 "transfer_file_browser": transfer_file_browser,
                 "transfer_selected_remote_entry": transfer_selected_remote_entry,
