@@ -119,8 +119,20 @@ class FakeRobotManager:
     def play_program(self) -> str:
         return self._run_action("play")
 
+    def pause_program(self) -> str:
+        return self._run_action("pause")
+
     def stop_program(self) -> str:
         return self._run_action("stop")
+
+    def reload_loaded_program(self) -> str:
+        return self._run_action("reload-loaded")
+
+    def restart_loaded_program(self) -> str:
+        return self._run_action("restart-loaded")
+
+    def move_home(self) -> str:
+        return self._run_action("move-home")
 
     def pull_remote_file(self, remote_path: str, local_destination: str) -> Path:
         target = Path(local_destination) / Path(remote_path).name

@@ -57,6 +57,14 @@ def test_classify_dashboard_load_response_success() -> None:
     assert notes == []
 
 
+def test_classify_dashboard_load_response_success_with_installation_path() -> None:
+    outcome, notes = classify_dashboard_load_response(
+        "Loading program: /ursim/programs/demo.urp, /ursim/programs/default.installation"
+    )
+    assert outcome == "success"
+    assert notes == []
+
+
 def test_classify_dashboard_load_response_path_strategy_unknown() -> None:
     outcome, notes = classify_dashboard_load_response(
         None,

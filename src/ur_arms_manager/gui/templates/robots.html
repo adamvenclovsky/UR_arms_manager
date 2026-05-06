@@ -111,12 +111,35 @@
               <p class="action-note">{{ robot.load_disabled_reason }}</p>
             {% endif %}
 
+            <dl class="detail-list library-detail-list runtime-target-summary">
+              <div class="detail-list-full">
+                <dt>Assigned Runtime Program</dt>
+                <dd class="program-value">{{ robot.assigned_program or "None assigned" }}</dd>
+              </div>
+              <div>
+                <dt>Assignment Type</dt>
+                <dd>{{ robot.assignment_kind_label }}</dd>
+              </div>
+              <div>
+                <dt>Load Ready</dt>
+                <dd>{% if robot.can_load %}Yes{% else %}No{% endif %}</dd>
+              </div>
+              <div class="detail-list-full">
+                <dt>Home Program</dt>
+                <dd class="program-value">{{ robot.home_program }}</dd>
+              </div>
+            </dl>
+
             <div class="action-grid">
               <button type="button" class="action-button" data-action="power-on" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Power On</button>
               <button type="button" class="action-button" data-action="brake-release" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Brake Release</button>
               <button type="button" class="action-button action-button-danger" data-action="power-off" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Power Off</button>
               <button type="button" class="action-button" data-action="load" {% if not robot.can_load or not robot.actions_enabled %}disabled title="{{ robot.load_disabled_reason or robot.actions_disabled_reason }}"{% endif %}>Load</button>
+              <button type="button" class="action-button" data-action="reload-loaded" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Reload Loaded</button>
+              <button type="button" class="action-button" data-action="restart-loaded" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Restart Loaded</button>
+              <button type="button" class="action-button" data-action="move-home" {% if not robot.can_move_home or not robot.actions_enabled %}disabled title="{{ robot.home_disabled_reason or robot.actions_disabled_reason }}"{% endif %}>Move Home</button>
               <button type="button" class="action-button" data-action="play" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Play</button>
+              <button type="button" class="action-button" data-action="pause" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Pause</button>
               <button type="button" class="action-button" data-action="stop" {% if not robot.actions_enabled %}disabled title="{{ robot.actions_disabled_reason }}"{% endif %}>Stop</button>
             </div>
 

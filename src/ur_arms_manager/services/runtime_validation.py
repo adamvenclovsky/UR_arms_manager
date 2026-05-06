@@ -66,8 +66,15 @@ def derive_dashboard_load_argument(assigned_runtime_path: str) -> str:
             raise ValueError("Assigned runtime path contains traversal segments and is not load-safe.")
         return relative
 
+    if candidate == "/programs":
+        raise ValueError(
+            "Assigned runtime path points to physical robot program root '/programs', not to a .urp program file."
+        )
     if candidate.startswith("/programs/"):
-        return candidate.lstrip("/")
+        relative = candidate[len("/programs/") :].strip("/")
+        if not relative:
+            raise ValueError("Assigned runtime path does not point to a loadable program file.")
+        return relative
 
     ursim_roots = ("/ursim/programs.UR5", "/ursim/programs")
     for root in ursim_roots:
@@ -92,11 +99,11 @@ def runtime_name_safety_warning(path_or_argument: str | None) -> str | None:
     candidate = str(path_or_argument or "").strip()
     if not candidate:
         return None
-    filename = PurePosixPath(candidate).name
+    parts = PurePosixPath(candidate).parts
     unsafe_chars = {" ", "'", '"', ";", "\t", "`"}
-    if any(char in filename for char in unsafe_chars):
+    if any(char in part for part in parts for char in unsafe_chars):
         return (
-            "Runtime warning: filename contains spaces or unsafe characters. "
+            "Runtime warning: path contains spaces or unsafe characters. "
             "Dashboard load parser may reject this program path."
         )
     return None
@@ -170,15 +177,8 @@ def classify_dashboard_load_response(
             "file_not_found",
             ["Dashboard could not resolve the requested program path."],
         )
-    if (
-        "installation" in normalized
-        or "safety" in normalized
-        or "protective stop" in normalized
-    ):
-        return (
-            "installation_or_safety_block",
-            ["Dashboard response indicates installation/safety/runtime preconditions are not met."],
-        )
+    if "loading program" in normalized or "loaded program" in normalized:
+        return "success", notes
     if (
         "remote control" in normalized
         or "manual mode" in normalized
@@ -188,8 +188,15 @@ def classify_dashboard_load_response(
             "wrong_mode_or_remote_control_issue",
             ["Dashboard response indicates remote-control mode is not ready for load/play."],
         )
-    if "loading program" in normalized or "loaded program" in normalized:
-        return "success", notes
+    if (
+        "installation" in normalized
+        or "safety" in normalized
+        or "protective stop" in normalized
+    ):
+        return (
+            "installation_or_safety_block",
+            ["Dashboard response indicates installation/safety/runtime preconditions are not met."],
+        )
     if (
         "error" in normalized
         or "failed" in normalized

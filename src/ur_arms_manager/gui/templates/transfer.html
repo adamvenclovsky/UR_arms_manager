@@ -41,6 +41,63 @@
             {% endfor %}
           </select>
         </label>
+        <input type="hidden" name="source_dir" value="{{ selected_source_dir or '' }}" />
+        <div class="row-action-strip">
+          <button
+            type="submit"
+            formaction="{{ url_for('transfer') }}"
+            formmethod="get"
+            class="action-button action-button-secondary row-action-button"
+          >
+            Refresh Source Detail
+          </button>
+          <a class="action-button action-button-link row-action-button" href="{{ url_for('transfer') }}?source_browser=1&source_path={{ selected_source or '' }}&source_dir={{ selected_source_dir or '' }}&robot_name={{ selected_robot or '' }}&remote_dir={{ selected_remote_dir or default_remote_dir }}">Open Library Storage Browser</a>
+        </div>
+
+        {% if transfer_library_browser %}
+          <section class="library-bundle-summary transfer-remote-panel">
+            <p class="card-label">Local Library Storage Browser</p>
+            <p>Current library path: <span class="program-value">{{ transfer_library_browser.current_dir_label }}</span></p>
+            {% if transfer_library_browser.parent_dir is not none %}
+              <p class="browser-nav-links">
+                <a class="card-link" href="{{ url_for('transfer') }}?source_browser=1&source_path={{ selected_source or '' }}&source_dir={{ transfer_library_browser.parent_dir }}&robot_name={{ selected_robot or '' }}&remote_dir={{ selected_remote_dir or default_remote_dir }}">Go Up One Level</a>
+                <a class="card-link" href="{{ url_for('transfer') }}?source_browser=1&source_path={{ selected_source or '' }}&source_dir=&robot_name={{ selected_robot or '' }}&remote_dir={{ selected_remote_dir or default_remote_dir }}">Go to Library Root</a>
+              </p>
+            {% endif %}
+            {% if transfer_library_browser.listing_error %}
+              <p class="action-note action-note-warning">Library browser error: {{ transfer_library_browser.listing_error }}</p>
+            {% elif transfer_library_browser.entries %}
+              <div class="library-browser-list">
+                {% for entry in transfer_library_browser.entries %}
+                  <article class="library-browser-row {% if selected_source == entry.library_path %}library-browser-row-active{% endif %}">
+                    <div class="library-browser-main">
+                      {% if entry.is_dir %}
+                        <a class="library-browser-primary" href="{{ url_for('transfer') }}?source_browser=1&source_path={{ selected_source or '' }}&source_dir={{ entry.open_dir }}&robot_name={{ selected_robot or '' }}&remote_dir={{ selected_remote_dir or default_remote_dir }}">{{ entry.name }}</a>
+                      {% else %}
+                        <a class="library-browser-primary" href="{{ url_for('transfer') }}?source_browser=1&source_path={{ entry.library_path }}&source_dir={{ transfer_library_browser.current_dir }}&robot_name={{ selected_robot or '' }}&remote_dir={{ selected_remote_dir or default_remote_dir }}">{{ entry.name }}</a>
+                      {% endif %}
+                      <span class="type-badge {{ entry.type_class }}">{{ entry.type_label }}</span>
+                      {% if entry.bundle_summary %}
+                        <span class="type-badge type-bundle">Bundle</span>
+                      {% endif %}
+                    </div>
+                    <div class="library-browser-meta">
+                      <span>{{ entry.library_path }}</span>
+                    </div>
+                    <div class="library-browser-links">
+                      <a href="{{ url_for('transfer') }}?source_browser=1&source_path={{ entry.library_path }}&source_dir={{ transfer_library_browser.current_dir }}&robot_name={{ selected_robot or '' }}&remote_dir={{ selected_remote_dir or default_remote_dir }}">Use as Source</a>
+                      {% if entry.is_dir %}
+                        <a href="{{ url_for('transfer') }}?source_browser=1&source_path={{ selected_source or '' }}&source_dir={{ entry.open_dir }}&robot_name={{ selected_robot or '' }}&remote_dir={{ selected_remote_dir or default_remote_dir }}">Open Folder</a>
+                      {% endif %}
+                    </div>
+                  </article>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="muted-note">This library directory is empty.</p>
+            {% endif %}
+          </section>
+        {% endif %}
 
         {% if selected_error %}
           <p class="action-note action-note-warning">Selection detail failed: {{ selected_error }}</p>

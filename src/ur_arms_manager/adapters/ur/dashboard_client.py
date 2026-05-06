@@ -45,8 +45,26 @@ class DashboardClient:
     def stop(self) -> str:
         return self.send_command("stop")
 
+    def pause(self) -> str:
+        return self.send_command("pause")
+
     def play(self) -> str:
         return self.send_command("play")
+
+    def close_popup(self) -> str:
+        return self.send_command("close popup")
+
+    def close_safety_popup(self) -> str:
+        return self.send_command("close safety popup")
+
+    def unlock_protective_stop(self) -> str:
+        return self.send_command("unlock protective stop")
+
+    def is_in_remote_control(self) -> str:
+        return self.send_command("is in remote control")
+
+    def get_loaded_program(self) -> str:
+        return self.send_command("get loaded program")
 
     def load(self, program_path: str) -> str:
         return self.send_command(f"load {program_path}")

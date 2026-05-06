@@ -22,7 +22,7 @@
       <h2>{{ current_dir_label }}</h2>
       <p class="muted-note">{{ folder_count }} folder{% if folder_count != 1 %}s{% endif %}, {{ file_count }} file{% if file_count != 1 %}s{% endif %}</p>
       {% if parent_dir is not none %}
-        <a class="card-link" href="{{ url_for('library') }}?dir={{ parent_dir }}">Go Up One Level</a>
+        <a class="card-link" href="{{ url_for('library') }}?dir={{ parent_dir }}{{ library_operation_query }}">Go Up One Level</a>
       {% endif %}
     </div>
   </section>
@@ -161,6 +161,31 @@
         <p class="card-label">Browser</p>
         <h2>Files and folders</h2>
       </div>
+      {% if pending_operation %}
+        <section class="operation-panel">
+          <p class="card-label">Pending {{ pending_operation.label }}</p>
+          <p>Source: <span class="program-value">{{ pending_operation.source_path }}</span></p>
+          <p>Target if confirmed here: <span class="program-value">{{ pending_operation.destination_path }}</span></p>
+          <div class="row-action-strip">
+            {% if pending_operation.operation == "move" %}
+              <form method="post" action="{{ url_for('move_library_item') }}" class="row-remove-form">
+                <input type="hidden" name="source_path" value="{{ pending_operation.source_path }}" />
+                <input type="hidden" name="destination_path" value="{{ pending_operation.destination_path }}" />
+                <input type="hidden" name="current_dir" value="{{ current_dir }}" />
+                <button type="submit" class="action-button row-action-button" {% if pending_operation.destination_path == pending_operation.source_path %}disabled title="Choose a different destination folder first"{% endif %}>Move Here</button>
+              </form>
+            {% else %}
+              <form method="post" action="{{ url_for('copy_library_item') }}" class="row-remove-form">
+                <input type="hidden" name="source_path" value="{{ pending_operation.source_path }}" />
+                <input type="hidden" name="destination_path" value="{{ pending_operation.destination_path }}" />
+                <input type="hidden" name="current_dir" value="{{ current_dir }}" />
+                <button type="submit" class="action-button row-action-button" {% if pending_operation.destination_path == pending_operation.source_path %}disabled title="Choose a different destination folder first"{% endif %}>Copy Here</button>
+              </form>
+            {% endif %}
+            <a class="action-button action-button-link action-button-secondary row-action-button" href="{{ url_for('library') }}?dir={{ current_dir }}">Cancel</a>
+          </div>
+        </section>
+      {% endif %}
 
       {% if listing_error %}
         <div class="item-warning">Folder listing failed: {{ listing_error }}</div>
@@ -170,9 +195,9 @@
             <article class="library-browser-row {% if selected_entry and selected_entry.library_path == entry.library_path %}library-browser-row-active{% endif %}">
               <div class="library-browser-main">
                 {% if entry.is_dir %}
-                  <a class="library-browser-primary" href="{{ url_for('library') }}?dir={{ entry.open_dir }}">{{ entry.name }}</a>
+                  <a class="library-browser-primary" href="{{ url_for('library') }}?dir={{ entry.open_dir }}{{ library_operation_query }}">{{ entry.name }}</a>
                 {% else %}
-                  <a class="library-browser-primary" href="{{ url_for('library') }}?dir={{ current_dir }}&selected={{ entry.select_path }}">{{ entry.name }}</a>
+                  <a class="library-browser-primary" href="{{ url_for('library') }}?dir={{ current_dir }}&selected={{ entry.select_path }}{{ library_operation_query }}">{{ entry.name }}</a>
                 {% endif %}
                 <span class="type-badge {{ entry.type_class }}">{{ entry.type_label }}</span>
                 {% if entry.bundle_summary %}
@@ -187,10 +212,19 @@
               </div>
               {% if entry.is_dir %}
                 <div class="library-browser-links">
-                  <a href="{{ url_for('library') }}?dir={{ current_dir }}&selected={{ entry.select_path }}">Inspect Folder</a>
-                  <a href="{{ url_for('library') }}?dir={{ entry.open_dir }}">Open Folder</a>
+                  <a href="{{ url_for('library') }}?dir={{ current_dir }}&selected={{ entry.select_path }}{{ library_operation_query }}">Inspect Folder</a>
+                  <a href="{{ url_for('library') }}?dir={{ entry.open_dir }}{{ library_operation_query }}">Open Folder</a>
                 </div>
               {% endif %}
+              <div class="row-action-strip">
+                <a class="action-button action-button-link row-action-button" href="{{ url_for('library') }}?dir={{ current_dir }}&selected={{ entry.select_path }}{{ library_operation_query }}">Select</a>
+                <a class="action-button action-button-secondary action-button-link row-action-button" href="{{ url_for('library') }}?dir={{ current_dir }}&operation=move&operation_source={{ entry.library_path | urlencode }}">Move</a>
+                <a class="action-button action-button-secondary action-button-link row-action-button" href="{{ url_for('library') }}?dir={{ current_dir }}&operation=copy&operation_source={{ entry.library_path | urlencode }}">Copy</a>
+                <form method="post" action="{{ url_for('remove_library_item', library_path=entry.library_path) }}" class="row-remove-form" onsubmit="return confirm('Delete this library path?');">
+                  <input type="hidden" name="current_dir" value="{{ current_dir }}" />
+                  <button type="submit" class="action-button action-button-danger row-action-button">Delete</button>
+                </form>
+              </div>
             </article>
           {% endfor %}
         </div>
@@ -326,31 +360,14 @@
           </section>
         {% endif %}
 
-        <form method="post" action="{{ url_for('remove_library_item', library_path=selected_entry.library_path) }}" class="library-remove-form">
+        <form method="post" action="{{ url_for('remove_library_item', library_path=selected_entry.library_path) }}" class="library-remove-form" onsubmit="return confirm('Delete this library path?');">
           <input type="hidden" name="current_dir" value="{{ current_dir }}" />
           <button type="submit" class="action-button action-button-danger">Remove Selected Path</button>
         </form>
 
         <section class="library-detail-actions">
-          <form method="post" action="{{ url_for('move_library_item') }}" class="stack-form">
-            <input type="hidden" name="source_path" value="{{ selected_entry.library_path }}" />
-            <input type="hidden" name="current_dir" value="{{ current_dir }}" />
-            <label class="form-field">
-              <span>Move to</span>
-              <input type="text" name="destination_path" value="{{ selected_entry.library_path }}" required />
-            </label>
-            <button type="submit" class="action-button">Move Selected Path</button>
-          </form>
-
-          <form method="post" action="{{ url_for('copy_library_item') }}" class="stack-form">
-            <input type="hidden" name="source_path" value="{{ selected_entry.library_path }}" />
-            <input type="hidden" name="current_dir" value="{{ current_dir }}" />
-            <label class="form-field">
-              <span>Copy to</span>
-              <input type="text" name="destination_path" value="{{ selected_entry.copy_suggestion }}" required />
-            </label>
-            <button type="submit" class="action-button">Copy Selected Path</button>
-          </form>
+          <a class="action-button action-button-link" href="{{ url_for('library') }}?dir={{ current_dir }}&operation=move&operation_source={{ selected_entry.library_path | urlencode }}">Move Selected Path</a>
+          <a class="action-button action-button-link" href="{{ url_for('library') }}?dir={{ current_dir }}&operation=copy&operation_source={{ selected_entry.library_path | urlencode }}">Copy Selected Path</a>
 
           <form method="post" action="{{ url_for('send_library_item_to_robot') }}" class="stack-form transfer-form">
             <input type="hidden" name="source_path" value="{{ selected_entry.library_path }}" />

@@ -126,16 +126,32 @@ def test_remove_file_calls_sftp_remove(monkeypatch) -> None:
     assert calls["remote_path"] == "/programs/demo.urp"
 
 
-def test_remove_dir_calls_sftp_rmdir(monkeypatch) -> None:
-    calls: dict[str, str] = {}
+def test_remove_dir_removes_remote_tree_before_directory(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
 
     class FakeSSHClient:
         def close(self) -> None:
             pass
 
+    class Attr:
+        def __init__(self, filename: str, is_dir: bool):
+            self.filename = filename
+            self.st_mode = stat.S_IFDIR if is_dir else stat.S_IFREG
+
     class FakeSFTPClient:
+        def listdir_attr(self, remote_dir: str):
+            entries = {
+                "/programs/old_folder": [Attr("main.urp", False), Attr("sub", True)],
+                "/programs/old_folder/sub": [Attr("nested.script", False)],
+            }
+            calls.append(("listdir_attr", remote_dir))
+            return entries[remote_dir]
+
+        def remove(self, remote_path: str) -> None:
+            calls.append(("remove", remote_path))
+
         def rmdir(self, remote_dir: str) -> None:
-            calls["remote_dir"] = remote_dir
+            calls.append(("rmdir", remote_dir))
 
         def close(self) -> None:
             pass
@@ -150,7 +166,14 @@ def test_remove_dir_calls_sftp_rmdir(monkeypatch) -> None:
     result = client.remove_dir("/programs/old_folder")
 
     assert result == "/programs/old_folder"
-    assert calls["remote_dir"] == "/programs/old_folder"
+    assert calls == [
+        ("listdir_attr", "/programs/old_folder"),
+        ("remove", "/programs/old_folder/main.urp"),
+        ("listdir_attr", "/programs/old_folder/sub"),
+        ("remove", "/programs/old_folder/sub/nested.script"),
+        ("rmdir", "/programs/old_folder/sub"),
+        ("rmdir", "/programs/old_folder"),
+    ]
 
 
 def test_rename_path_calls_sftp_rename(monkeypatch) -> None:

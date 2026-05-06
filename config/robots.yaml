@@ -3,20 +3,44 @@ robots:
     host: 127.0.0.1
     dashboard_port: 29991
     script_port: 30022
+    rtde_port: 30024
     ssh_port: 2222
     ssh_username: root
     ssh_password: easybot
     enabled: true
-    assigned_program: /ursim/programs.UR5/zaboj_fiala_program/zaboj_fiala_program.urp
+    assigned_program: /ursim/programs.UR5/final_project/final.urp
+    home_program: null
   robot2:
-    host: 127.0.0.1
-    dashboard_port: 29992
-    script_port: 30022
-    ssh_port: 2223
+    # Physical UR arm template.
+    # Fill in the robot IP address from PolyScope:
+    #   Settings / System / Network -> IP address
+    host: 192.168.0.96
+    # Standard UR Dashboard Server port.
+    dashboard_port: 29999
+    # Standard UR Secondary client / script socket port.
+    script_port: 30002
+    # Standard UR RTDE port.
+    rtde_port: 30004
+    # SSH/SFTP port on the robot controller.
+    # Needed only for file operations in this app:
+    # browse robot storage, upload/download, delete, move, copy.
+    # Dashboard status/load/play can work without SSH.
+    ssh_port: 22
+    # Fill in SSH/SFTP credentials if SSH is enabled on the robot.
+    # UR documentation/tutorials commonly use root/easybot, but a physical
+    # robot may use a changed password or may have SSH disabled by the lab.
+    # If you will not use robot-side file operations, these can stay empty.
     ssh_username: root
     ssh_password: easybot
-    enabled: false
-    assigned_program: library://hello-78c94d3f
+    # Keep disabled until host and credentials are filled and network is verified.
+    enabled: true
+    # Fill in the robot-side program path after deploying or locating the .urp,
+    # for example: /programs/final_project/final.urp
+    assigned_program: null
+    # Existing robot-side .urp that moves the robot to the desired start/home pose.
+    # This is used by the Move Home button through Dashboard load + play.
+    # Use a Dashboard-safe path/name without spaces, for example: /programs/go_home.urp
+    home_program: null
   robot3:
     host: 127.0.0.1
     dashboard_port: 29993
@@ -26,3 +50,4 @@ robots:
     ssh_password: easybot
     enabled: false
     assigned_program: null
+    home_program: null

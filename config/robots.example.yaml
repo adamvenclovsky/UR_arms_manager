@@ -3,28 +3,36 @@ robots:
     host: 127.0.0.1
     dashboard_port: 29991
     script_port: 30021
+    rtde_port: 30004
     ssh_port: 22
     ssh_username: root
     ssh_password: easybot
     enabled: true
     assigned_program: programs/robot1/demo_hello.script
+    home_program: null
 
   robot2:
     host: 127.0.0.1
     dashboard_port: 29992
     script_port: 30022
+    rtde_port: 30004
     ssh_port: 22
     ssh_username: root
     ssh_password: easybot
     enabled: false
     assigned_program: null
+    # Optional existing robot-side .urp used by the Move Home button.
+    # Example for a physical robot: /programs/go_home.urp
+    home_program: null
 
   robot3:
     host: 127.0.0.1
     dashboard_port: 29993
     script_port: 30023
+    rtde_port: 30004
     ssh_port: 22
     ssh_username: root
     ssh_password: easybot
     enabled: false
     assigned_program: null
+    home_program: null

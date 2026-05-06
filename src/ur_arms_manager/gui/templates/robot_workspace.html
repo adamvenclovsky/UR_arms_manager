@@ -120,12 +120,34 @@
         {% endif %}
 
         <p class="card-label">Dashboard Runtime</p>
+        <dl class="detail-list library-detail-list runtime-target-summary">
+          <div class="detail-list-full">
+            <dt>Assigned Runtime Program</dt>
+            <dd class="program-value">{{ robot_card.assigned_program or "None assigned" }}</dd>
+          </div>
+          <div>
+            <dt>Assignment Type</dt>
+            <dd>{{ robot_card.assignment_kind_label }}</dd>
+          </div>
+          <div>
+            <dt>Load Ready</dt>
+            <dd>{% if robot_card.can_load %}Yes{% else %}No{% endif %}</dd>
+          </div>
+          <div class="detail-list-full">
+            <dt>Home Program</dt>
+            <dd class="program-value">{{ robot_card.home_program }}</dd>
+          </div>
+        </dl>
         <div class="action-grid">
           <button type="button" class="action-button" data-action="power-on" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Power On</button>
           <button type="button" class="action-button" data-action="brake-release" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Brake Release</button>
           <button type="button" class="action-button action-button-danger" data-action="power-off" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Power Off</button>
           <button type="button" class="action-button" data-action="load" {% if not robot_card.can_load or not robot_card.actions_enabled %}disabled title="{{ robot_card.load_disabled_reason or robot_card.actions_disabled_reason }}"{% endif %}>Load</button>
+          <button type="button" class="action-button" data-action="reload-loaded" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Reload Loaded</button>
+          <button type="button" class="action-button" data-action="restart-loaded" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Restart Loaded</button>
+          <button type="button" class="action-button" data-action="move-home" {% if not robot_card.can_move_home or not robot_card.actions_enabled %}disabled title="{{ robot_card.home_disabled_reason or robot_card.actions_disabled_reason }}"{% endif %}>Move Home</button>
           <button type="button" class="action-button" data-action="play" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Play</button>
+          <button type="button" class="action-button" data-action="pause" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Pause</button>
           <button type="button" class="action-button" data-action="stop" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Stop</button>
         </div>
 
@@ -253,7 +275,40 @@
             {% endif %}
 
             {% if file_browser.parent_dir %}
-              <p><a class="card-link" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.parent_dir }}">Go Up One Level</a></p>
+              <p class="browser-nav-links">
+                <a class="card-link" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.parent_dir }}{{ robot_operation_query }}">Go Up One Level</a>
+                <a class="card-link" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ ursim_remote_root_profile }}{{ robot_operation_query }}">Go to Default Root</a>
+              </p>
+            {% else %}
+              <p class="browser-nav-links">
+                <a class="card-link" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ ursim_remote_root_profile }}{{ robot_operation_query }}">Go to Default Root</a>
+              </p>
+            {% endif %}
+
+            {% if pending_operation %}
+              <section class="operation-panel">
+                <p class="card-label">Pending {{ pending_operation.label }}</p>
+                <p>Source: <span class="program-value">{{ pending_operation.source_path }}</span></p>
+                <p>Target if confirmed here: <span class="program-value">{{ pending_operation.destination_path }}</span></p>
+                <div class="row-action-strip">
+                  {% if pending_operation.operation == "move" %}
+                    <form method="post" action="{{ url_for('move_robot_workspace_path', robot_name=robot_card.name) }}" class="row-remove-form">
+                      <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
+                      <input type="hidden" name="source_path" value="{{ pending_operation.source_path }}" />
+                      <input type="hidden" name="destination_path" value="{{ pending_operation.destination_path }}" />
+                      <button type="submit" class="action-button row-action-button" {% if pending_operation.destination_path == pending_operation.source_path %}disabled title="Choose a different destination folder first"{% endif %}>Move Here</button>
+                    </form>
+                  {% else %}
+                    <form method="post" action="{{ url_for('copy_robot_workspace_file', robot_name=robot_card.name) }}" class="row-remove-form">
+                      <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
+                      <input type="hidden" name="source_path" value="{{ pending_operation.source_path }}" />
+                      <input type="hidden" name="destination_path" value="{{ pending_operation.destination_path }}" />
+                      <button type="submit" class="action-button row-action-button" {% if pending_operation.destination_path == pending_operation.source_path %}disabled title="Choose a different destination folder first"{% endif %}>Copy Here</button>
+                    </form>
+                  {% endif %}
+                  <a class="action-button action-button-link action-button-secondary row-action-button" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}">Cancel</a>
+                </div>
+              </section>
             {% endif %}
 
             {% if file_browser.listing_error %}
@@ -267,9 +322,9 @@
                   <article class="robot-file-row {% if entry.kind == 'directory' %}robot-file-row-directory{% endif %} {% if selected_remote_path == entry.remote_path %}library-row-active{% endif %}">
                     <div class="library-row-main">
                       {% if entry.kind == "directory" %}
-                        <a class="robot-file-primary" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ entry.remote_path }}">{{ entry.name }}</a>
+                        <a class="robot-file-primary" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ entry.remote_path }}{{ robot_operation_query }}">{{ entry.name }}</a>
                       {% else %}
-                        <a class="robot-file-primary" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}&selected_remote_path={{ entry.remote_path }}">{{ entry.name }}</a>
+                        <a class="robot-file-primary" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}&selected_remote_path={{ entry.remote_path }}{{ robot_operation_query }}">{{ entry.name }}</a>
                       {% endif %}
                       <span class="type-badge {{ entry.type_class }}">{{ entry.kind_label if entry.kind == "directory" else '.' ~ entry.extension if entry.extension else 'File' }}</span>
                     </div>
@@ -278,10 +333,23 @@
                     </div>
                     {% if entry.kind == "directory" %}
                       <div class="library-browser-links">
-                        <a href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}&selected_remote_path={{ entry.remote_path }}">Inspect Folder</a>
-                        <a href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ entry.remote_path }}">Open Folder</a>
+                        <a href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}&selected_remote_path={{ entry.remote_path }}{{ robot_operation_query }}">Inspect Folder</a>
+                        <a href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ entry.remote_path }}{{ robot_operation_query }}">Open Folder</a>
                       </div>
                     {% endif %}
+                    <div class="row-action-strip">
+                      <a class="action-button action-button-link row-action-button" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}&selected_remote_path={{ entry.remote_path }}{{ robot_operation_query }}">Select</a>
+                      <a class="action-button action-button-secondary action-button-link row-action-button" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}&operation=move&operation_source={{ entry.remote_path | urlencode }}">Move</a>
+                      {% if entry.kind != "directory" %}
+                        <a class="action-button action-button-secondary action-button-link row-action-button" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}&operation=copy&operation_source={{ entry.remote_path | urlencode }}">Copy</a>
+                      {% endif %}
+                      <form method="post" action="{{ url_for('remove_robot_workspace_path', robot_name=robot_card.name) }}" class="row-remove-form" onsubmit="return confirm('Delete this remote path?');">
+                        <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
+                        <input type="hidden" name="remote_path" value="{{ entry.remote_path }}" />
+                        <input type="hidden" name="item_kind" value="{{ entry.kind }}" />
+                        <button type="submit" class="action-button action-button-danger row-action-button">Delete</button>
+                      </form>
+                    </div>
                   </article>
                 {% endfor %}
               </div>
@@ -333,7 +401,7 @@
                 {% endif %}
               </dl>
 
-              <form method="post" action="{{ url_for('remove_robot_workspace_path', robot_name=robot_card.name) }}" class="library-remove-form">
+              <form method="post" action="{{ url_for('remove_robot_workspace_path', robot_name=robot_card.name) }}" class="library-remove-form" onsubmit="return confirm('Delete this remote path?');">
                 <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
                 <input type="hidden" name="remote_path" value="{{ selected_remote_entry.remote_path }}" />
                 <input type="hidden" name="item_kind" value="{{ selected_remote_entry.kind }}" />
@@ -341,15 +409,7 @@
               </form>
 
               <section class="library-detail-actions">
-                <form method="post" action="{{ url_for('move_robot_workspace_path', robot_name=robot_card.name) }}" class="stack-form">
-                  <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
-                  <input type="hidden" name="source_path" value="{{ selected_remote_entry.remote_path }}" />
-                  <label class="form-field">
-                    <span>Move or rename to</span>
-                    <input type="text" name="destination_path" value="{{ selected_remote_entry.remote_path }}" required />
-                  </label>
-                  <button type="submit" class="action-button">Move Selected Path</button>
-                </form>
+                <a class="action-button action-button-link" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}&operation=move&operation_source={{ selected_remote_entry.remote_path | urlencode }}">Move Selected Path</a>
 
                 {% if selected_remote_entry.kind != "directory" %}
                   {% if selected_remote_entry.extension != "script" %}
@@ -369,15 +429,7 @@
                     </form>
                   {% endif %}
 
-                  <form method="post" action="{{ url_for('copy_robot_workspace_file', robot_name=robot_card.name) }}" class="stack-form">
-                    <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
-                    <input type="hidden" name="source_path" value="{{ selected_remote_entry.remote_path }}" />
-                    <label class="form-field">
-                      <span>Copy file to</span>
-                      <input type="text" name="destination_path" value="{{ selected_remote_entry.copy_suggestion }}" required />
-                    </label>
-                    <button type="submit" class="action-button">Copy Selected File</button>
-                  </form>
+                  <a class="action-button action-button-link" href="{{ url_for('robot_workspace', robot_name=robot_card.name) }}?remote_dir={{ file_browser.current_dir }}&operation=copy&operation_source={{ selected_remote_entry.remote_path | urlencode }}">Copy Selected File</a>
 
                   <form method="post" action="{{ url_for('import_robot_workspace_file', robot_name=robot_card.name) }}" class="stack-form">
                     <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />

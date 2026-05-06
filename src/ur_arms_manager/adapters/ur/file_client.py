@@ -194,8 +194,14 @@ class FileClient:
     def remove_dir(self, remote_dir: str) -> str:
         ssh, sftp = self._open_sftp()
         try:
+            remote_dir = self._normalize_remote_dir(remote_dir)
+            if remote_dir == "/":
+                raise FileClientError("Nelze odstranit kořenový remote adresář.")
+            self._remove_remote_tree(sftp, remote_dir)
             sftp.rmdir(remote_dir)
             return remote_dir
+        except FileClientError:
+            raise
         except FileNotFoundError as exc:
             raise FileClientError(f"Remote adresář neexistuje: {remote_dir}") from exc
         except OSError as exc:
@@ -253,6 +259,15 @@ class FileClient:
                 sftp.stat(current)
             except FileNotFoundError:
                 sftp.mkdir(current)
+
+    def _remove_remote_tree(self, sftp: paramiko.SFTPClient, remote_dir: str) -> None:
+        for entry in sftp.listdir_attr(remote_dir):
+            child_path = self._join_remote_path(remote_dir, entry.filename)
+            if stat.S_ISDIR(entry.st_mode):
+                self._remove_remote_tree(sftp, child_path)
+                sftp.rmdir(child_path)
+            else:
+                sftp.remove(child_path)
 
     def _normalize_remote_dir(self, remote_dir: str) -> str:
         candidate = str(remote_dir or "").strip() or "/"
