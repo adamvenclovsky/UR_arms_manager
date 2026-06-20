@@ -1,0 +1,1931 @@
+def P294_final():
+  global _hidden_verificationVariable=0
+  step_count_634e7193_9510_40f2_8950_f069a6ed72f6 = 0.0
+  thread Step_Counter_Thread_2e02e2f8_6ee9_4e51_a2e9_76a2603aff98():
+    while (True):
+      step_count_634e7193_9510_40f2_8950_f069a6ed72f6 = step_count_634e7193_9510_40f2_8950_f069a6ed72f6 + 1.0
+      sync()
+    end
+  end
+  run Step_Counter_Thread_2e02e2f8_6ee9_4e51_a2e9_76a2603aff98()
+  set_gravity([0.0, 0.0, 9.82])
+  set_safety_mode_transition_hardness(1)
+  set_target_payload(1.110000, [0.000000, 0.000000, 0.054000], [0.001832, 0.001832, 0.001832, 0.000000, 0.000000, 0.000000])
+  set_tcp(p[3.414983750301692E-4,-7.378046129560278E-4,0.2251682051354249,-4.265841666109978E-5,-8.612665027929194E-6,-0.002773258026401147])
+  set_tool_communication(True, 115200, 0, 1, 1.5, 3.5)
+  set_tool_output_mode(0)
+  set_tool_digital_output_mode(0, 1)
+  set_tool_digital_output_mode(1, 1)
+  set_tool_voltage(24)
+  set_standard_analog_input_domain(0, 1)
+  set_standard_analog_input_domain(1, 1)
+  set_tool_analog_input_domain(0, 1)
+  set_tool_analog_input_domain(1, 1)
+  set_analog_outputdomain(0, 1)
+  set_analog_outputdomain(1, 1)
+  set_input_actions_to_default()
+  set_runstate_standard_digital_outputs([2])
+  set_runstate_standard_digital_output_to_value(2, 1)
+  global pocitadlo=0
+  global plac=0
+  global Point_1=p[0.3338313726843461,-0.15506476412395023,0.6573936984205149,-1.1630571465728121,1.3648024787354938,-1.2034020588067031]
+  global referencePoin_1=p[0.3913598942346397,6.781131694296155E-5,-0.048850332854417866,-3.1412922713074996,0.039972388482483,-2.0461150019661261E-4]
+  global referencePoint=p[0.273602410732008,0.06317709236771941,-0.04889422679210581,-3.141569622383172,-4.35048960599078E-5,5.605550951385046E-6]
+  global separatorPoin_1=p[0.0,0.0,0.0,0.0,0.0,0.0]
+  global separatorPoint=p[0.0,0.0,0.0,0.0,0.0,0.0]
+  # begin: URCap Installation Node
+  #   Source: UR Connect, 1.13.79, Universal Robots
+  #   Type: UR Connect
+  myurRPC = rpc_factory("xmlrpc","http://127.0.0.1:40474")
+  # end: URCap Installation Node
+  # begin: URCap Installation Node
+  #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+  #   Type: Vacuum
+  #################################################
+  # Vacuum Grip Check
+  #################################################
+  
+  vacuumGripCheckThread1 = 0
+  vacuumGripCheckThread2 = 0
+  vacuumGripCheckThread3 = 0
+  vacuumGripCheckThread4 = 0
+  vacuumGripCheckThread1Running = False
+  vacuumGripCheckThread2Running = False
+  vacuumGripCheckThread3Running = False
+  vacuumGripCheckThread4Running = False
+  vacuumGripCheckslave_id = 1
+  vacuumGripCheckThreadStarted = False
+  
+  thread vacuumGripCheck():
+    slave_id = vacuumGripCheckslave_id
+    vacuumGripCheckThreadStarted = True
+  
+    while (True):
+      objectDetectedDebounceCtr = 0
+  
+      while (objectDetectedDebounceCtr < 3):
+        if(rq_is_vacuum_obj_detected_by_slave_id(slave_id=9)):
+          objectDetectedDebounceCtr = objectDetectedDebounceCtr + 1
+        else:
+          objectDetectedDebounceCtr = 0
+        end
+        sleep(0.1)
+      end
+  
+      objectNotDetectedDebounceCtr = 0
+  
+      while objectNotDetectedDebounceCtr < 3:
+        if (not rq_is_vacuum_obj_detected_by_slave_id(slave_id=9)):
+          objectNotDetectedDebounceCtr = objectNotDetectedDebounceCtr + 1
+        else:
+          objectNotDetectedDebounceCtr = 0
+        end
+        sleep(0.1)
+      end
+  
+      socket_open("127.0.0.1",29999,"dashboardServerSocket")
+      socket_send_line("pause","dashboardServerSocket")
+      socket_send_string("popup Vacuum grip check has detected an object drop.", "dashboardServerSocket")
+      socket_send_byte(10, "dashboardServerSocket")
+      socket_close("dashboardServerSocket")
+  
+      sleep(0.008)
+    end
+  end
+  
+  def startVacuumGripCheckThread(slave_id=9):
+    vacuumGripCheckslave_id = slave_id
+    threadHandle = run vacuumGripCheck()
+    waitForVacuumGripCheckThreadStarted()
+    return threadHandle
+  end
+  
+  def stopVacuumGripCheckThread(threadHandle):
+    kill threadHandle
+  end
+  
+  def waitForVacuumGripCheckThreadStarted():
+    while (not(vacuumGripCheckThreadStarted)):
+      sleep(0.008)
+    end
+    vacuumGripCheckThreadStarted = False
+  end
+  #################################################
+  # End - Vacuum Grip Check
+  #################################################
+  
+  #################################################
+  # Stops the pump on a distance travelled
+  #################################################
+  global stopPumpDistance = 100
+  global stopPumpslave_id = 0
+  global stopPumpThreadStarted = [False, False, False, False]
+  global stopPumpThreadHandles = [0, 0, 0, 0]
+  
+  thread stopPumpOnDistanceTravelled():
+    distance = stopPumpDistance
+    slave_id = stopPumpslave_id
+    stopPumpThreadStarted[rq_slave_id_to_index(slave_id)] = True
+  
+    measuredDistance = waitForDistanceTravelled(distance)
+  
+    rq_stop(slave_id_to_gripper_socket(slave_id))
+  
+    stopPumpThreadStarted[rq_slave_id_to_index(slave_id)] = False
+  end
+  
+  def waitForDistanceTravelled(distance):
+    startingPose = get_actual_tcp_pose()
+    measuredDistance = 0
+    while (measuredDistance < distance):
+      sleep(0.1)
+      measuredDistance = point_dist(get_actual_tcp_pose(), startingPose)
+    end
+  
+    return measuredDistance
+  end
+  
+  def startStopPumpOnDistanceTravelledThread(distance, slave_id=9):
+    if (stopPumpThreadStarted[rq_slave_id_to_index(slave_id)]):
+      return 0
+    end
+  
+    global stopPumpDistance = distance
+    global stopPumpslave_id = slave_id
+    stopPumpThreadHandles[rq_slave_id_to_index(slave_id)] = run stopPumpOnDistanceTravelled()
+    waitForStopPumpOnDistanceTravelledThreadStarted(slave_id)
+    return stopPumpThreadHandles[rq_slave_id_to_index(slave_id)]
+  end
+  
+  def waitForStopPumpOnDistanceTravelledThreadStarted(slave_id=9):
+    while (not(stopPumpThreadStarted[rq_slave_id_to_index(slave_id)])):
+      sleep(0.008)
+    end
+  end
+  
+  def stopStopPumpOnDistanceTravelledThread(slave_id=9):
+    handle = stopPumpThreadHandles[rq_slave_id_to_index(slave_id)]
+    threadIsRunning = stopPumpThreadStarted[rq_slave_id_to_index(slave_id)]
+    if (threadIsRunning):
+      kill handle
+      stopPumpThreadHandles[rq_slave_id_to_index(slave_id)] = 0
+    end
+  end
+  #################################################
+  # End - Stops the pump on a distance travelled
+  #################################################
+  
+  #################################################
+  # Vacuum general functions
+  #################################################
+  def rq_wait_for_vacuum_object_detected(slave_id=9):
+      while (not rq_is_vacuum_obj_detected_by_slave_id(slave_id)):
+          if (rq_is_vacuum_timeout(slave_id)):
+              return False
+          end
+          sleep(0.008)
+      end
+      return True
+  end
+  
+  def rq_wait_for_vacuum_object_secured(slave_id=9):
+      while (not rq_is_vacuum_obj_secured(slave_id)):
+          if (rq_is_vacuum_timeout(slave_id)):
+              return False
+          end
+          sleep(0.008)
+      end
+      return True
+  end
+  
+  def rq_wait_for_vacuum_object_suction_complete(slave_id=9):
+      remaining_retries = 50
+  
+       # Wait for suction started
+      while (not rq_is_vacuum_obj_in_suction(slave_id) and
+             not rq_is_vacuum_obj_detected_by_slave_id(slave_id) and
+             remaining_retries > 0):
+          sleep(0.01)
+          remaining_retries = remaining_retries - 1
+      end
+  
+      # Wait for suction completed
+      while (rq_is_vacuum_obj_in_suction(slave_id)):
+          if (rq_is_vacuum_timeout(slave_id)):
+              return False
+          end
+          sleep(0.01)
+      end
+  
+      return True
+  end
+  
+  def rq_wait_for_vacuum_object_not_detected(slave_id=9):
+      while (rq_is_vacuum_obj_detected_by_slave_id(slave_id)):
+          sleep(0.01)
+      end
+  end
+  
+  def rq_is_vacuum_obj_detected_by_slave_id(slave_id=9):
+      gOBJ = driver_gripper_client.getObjectDetectionFlag(slave_id)
+      return is_vacuum_OBJ_object_detected(gOBJ)
+  end
+  
+  def rq_is_vacuum_obj_detected(gripper_socket="1"):
+      slave_id = gripper_socket_to_slave_id(gripper_socket)
+      return rq_is_vacuum_obj_detected_by_slave_id(slave_id)
+  end
+  
+  def rq_is_vacuum_obj_secured(slave_id=9):
+      gOBJ = driver_gripper_client.getObjectDetectionFlag(slave_id)
+      return is_vacuum_OBJ_object_secured(gOBJ)
+  end
+  
+  def rq_is_vacuum_obj_in_suction(slave_id=9):
+      gOBJ = driver_gripper_client.getObjectDetectionFlag(slave_id)
+      return is_vacuum_OBJ_object_in_motion(gOBJ)
+  end
+  
+  def rq_is_vacuum_timeout(slave_id=9):
+      gFLT = driver_gripper_client.getFault(slave_id)
+      return gFLT == 6
+  end
+  
+  def is_vacuum_OBJ_object_in_motion(gOBJ):
+      return gOBJ == 0
+  end
+  
+  def is_vacuum_OBJ_object_detected(gOBJ):
+      return gOBJ == 1 or gOBJ == 2
+  end
+  
+  def is_vacuum_OBJ_object_secured(gOBJ):
+      return gOBJ == 2
+  end
+  
+  def rq_set_vacuum_and_wait(pressure, timeout, minimum, advanced_mode, slave_id=9):
+      driver_gripper_client.configureVacuum(slave_id, advanced_mode, pressure, minimum, timeout)
+  end
+  
+  def is_continuous_grip(maximum_vacuum):
+    return maximum_vacuum == 0
+  end
+  
+  def rq_vacuum_release(advanced_mode=False, shutoff_distance_cm=5, wait_for_object_released=True, gripper_socket="1"):
+    rq_wait_for_gripper_reconnection()
+    local slave_id = gripper_socket_to_slave_id(gripper_socket)
+    local shutoff_distance = scale(shutoff_distance_cm, [0, 99], [0.00, 0.99])
+    local pressure = 255
+    local minimum = 0
+    local timeout = 255
+    rq_vacuum_release_raw(advanced_mode, pressure, minimum, timeout, shutoff_distance, wait_for_object_released, slave_id)
+  end
+  
+  def rq_vacuum_release_raw(advanced_mode, pressure, minimum, timeout, shutoff_distance, wait_for_object_released, slave_id):
+    rq_reset_fault_and_activate(slave_id)
+  
+    if advanced_mode:
+      rq_set_vacuum_and_wait(pressure, timeout, minimum, 1, slave_id)
+    else:
+      rq_set_vacuum_and_wait(pressure, timeout, minimum, 0, slave_id)
+    end
+  
+    # The following patch is for Robotiq's Camera issue when communication is lost, but not the activation
+    # the communication driver reset the GTO bit
+    driver_gripper_client.goto(slave_id, 1)
+  
+    if wait_for_object_released:
+      while (rq_is_vacuum_obj_detected_by_slave_id(slave_id)):
+  
+        if advanced_mode:
+          rq_set_vacuum_and_wait(pressure, timeout, minimum, 1, slave_id)
+        else:
+          rq_set_vacuum_and_wait(pressure, timeout, minimum, 0, slave_id)
+        end
+  
+        # The following patch is for Robotiq's Camera issue when communication is lost, but not the activation
+        # the communication driver reset the GTO bit
+        driver_gripper_client.goto(slave_id, 1)
+        sleep(0.01)
+      end
+    end
+  
+    if advanced_mode:
+      startStopPumpOnDistanceTravelledThread(shutoff_distance, slave_id)
+    end
+  end
+  
+  def rq_vacuum_grip(advanced_mode=False, maximum_vacuum=60, minimum_vacuum=40, timeout_ms=3000, wait_for_object_detected=True, gripper_socket="1"):
+    rq_wait_for_gripper_reconnection()
+    local slave_id = gripper_socket_to_slave_id(gripper_socket)
+    local pressure = floor(scale(maximum_vacuum, [0, 100], [100, 0]))
+    local minimum = floor(scale(minimum_vacuum, [0, 100], [100, 0]))
+    local timeout = floor(scale(timeout_ms, [0, 25500], [0, 255]))
+    rq_vacuum_grip_raw(advanced_mode, pressure, minimum, timeout, slave_id)
+    if wait_for_object_detected:
+          suction_completed = rq_wait_for_vacuum_object_suction_complete(slave_id)
+          if(not suction_completed):
+            driver_gripper_client.goto(slave_id, 0)
+          end
+    end
+  end
+  
+  def rq_vacuum_grip_raw(advanced_mode, pressure, minimum, timeout, slave_id):
+    stopStopPumpOnDistanceTravelledThread(slave_id)
+    rq_reset_fault_and_activate(slave_id)
+  
+    if advanced_mode:
+      rq_set_vacuum_and_wait(pressure, timeout, minimum, 1, slave_id)
+    else:
+      rq_set_vacuum_and_wait(pressure, timeout, minimum, 0, slave_id)
+    end
+  
+    driver_gripper_client.goto(slave_id, 1)
+  end
+  
+  def is_FLT_no_fault(gFLT):
+      return gFLT == 0
+  end
+  
+  def is_FLT_vacuum_timeout(gFLT):
+    return gFLT == 6
+  end
+  
+  def is_FLT_faulted(gFLT):
+      return gFLT >= 8
+  end
+  
+  def rq_reset_fault_and_activate(slave_id):
+      gFLT = driver_gripper_client.getFault(slave_id)
+  
+      if(not is_FLT_no_fault(gFLT)):
+          if(is_FLT_vacuum_timeout(gFLT)):
+              driver_gripper_client.goto(slave_id, 0)
+          elif(is_FLT_faulted(gFLT)):
+              driver_gripper_client.goto(slave_id, 0)
+              driver_gripper_client.activate([slave_id], True)
+          end
+      elif(not rq_is_gripper_activated(slave_id)):
+          driver_gripper_client.goto(slave_id, 0)
+          driver_gripper_client.activate([slave_id], False)
+      end
+  end
+  #################################################
+  # End - Vacuum general functions
+  #################################################
+    def scale(value, rawRange, scaledRange):
+        def computeSlope(inputRange, outputRange):
+            outputRangeDelta = outputRange[1] - outputRange[0]
+            inputRangeDelta = inputRange[1] - inputRange[0]
+
+            if (inputRangeDelta == 0):
+                return 0
+            else:
+                return outputRangeDelta / inputRangeDelta
+            end
+        end
+
+        def computeIntercept(slope, inputRange, outputRange):
+            return outputRange[0] - (slope * inputRange[0])
+        end
+
+        def clipScaledValue(outputScaledValue, outputRange):
+            if (outputRange[0] < outputRange[1]):
+                return clipWhenLowerLimitIsLessThanHigher(outputScaledValue, outputRange)
+            else:
+                return clipWhenLowerLimitIsGreaterThanHigherLimit(outputScaledValue, outputRange)
+            end
+        end
+
+        def clipWhenLowerLimitIsGreaterThanHigherLimit(outputScaledValue, outputRange):
+            if (outputScaledValue < outputRange[1]):
+                return outputRange[1]
+            elif (outputScaledValue > outputRange[0]):
+                return outputRange[0]
+            else:
+                return outputScaledValue
+            end
+        end
+
+        def clipWhenLowerLimitIsLessThanHigher(outputScaledValue, outputRange):
+            if (outputScaledValue < outputRange[0]):
+                return outputRange[0]
+            elif (outputScaledValue > outputRange[1]):
+                return outputRange[1]
+            else:
+                return outputScaledValue
+            end
+        end
+
+        slope = computeSlope(rawRange, scaledRange)
+        intercept = computeIntercept(slope, rawRange, scaledRange)
+        scaledValue = slope * value + intercept
+        return clipScaledValue(scaledValue, scaledRange)
+    end
+
+    def limit(value, range):
+        return scale(value, range, range)
+    end
+
+  vacuumGripCheckWarningTitle = "Vacuum grip check"
+  vacuumGripCheckWarningMessage = "Vacuum gripper object lost"
+  vacuumGripTimeoutTitle = "Vacuum gripper fault"
+  vacuumGripTimeoutMessage = "Grip has timed out"
+  # end: URCap Installation Node
+  # begin: URCap Installation Node
+  #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+  #   Type: Gripper
+  RQ_UNIT_PERCENT = 0
+  RQ_UNIT_MM = 1
+  RQ_UNIT_INCH = 2
+  
+  global gripper_reconnecting = False
+  rq_current_limit_enabled = False
+  gripper_closed_norm = [100, 100, 100, 100]
+  gripper_open_norm = [0, 0, 0, 0]
+  gripper_closed_mm = [0, 0, 0, 0]
+  gripper_open_mm = [50, 50, 50, 50]
+  
+  driver_gripper_client = rpc_factory("xmlrpc","http://127.0.0.1:63353")
+  
+  def rq_set_force_norm(force_norm, gripper_socket="1"):
+      rq_wait_for_gripper_reconnection()
+      slave_id = gripper_socket_to_slave_id(gripper_socket)
+      rq_set_force_norm_multi_grippers(force_norm, [slave_id])
+  end
+  
+  def rq_set_force_norm_multi_grippers(force_norm, slave_ids=[9]):
+      driver_gripper_client.setForce(slave_ids, force_norm)
+  end
+  
+  def rq_set_speed_norm(speed_norm, gripper_socket="1"):
+      rq_wait_for_gripper_reconnection()
+      slave_id = gripper_socket_to_slave_id(gripper_socket)
+      rq_set_speed_norm_multi_grippers(speed_norm, [slave_id])
+  end
+  
+  def rq_set_speed_norm_multi_grippers(speed_norm, slave_ids=[9]):
+      driver_gripper_client.setSpeed(slave_ids, speed_norm)
+  end
+  
+  def rq_open_and_wait(gripper_socket="1"):
+      rq_wait_for_gripper_reconnection()
+      slave_id = gripper_socket_to_slave_id(gripper_socket)
+      driver_gripper_client.openGripper(slave_id)
+      rq_wait_for_motion_complete([slave_id])
+  end
+  
+  def rq_close_and_wait(gripper_socket="1"):
+      rq_wait_for_gripper_reconnection()
+      slave_id = gripper_socket_to_slave_id(gripper_socket)
+      driver_gripper_client.closeGripper(slave_id)
+      rq_wait_for_motion_complete([slave_id])
+  end
+  
+  def rq_move_norm_multi_grippers(position, slave_ids=[9]):
+     # rq_wait_for_gripper_reconnection fucntion is not called here because it is already done in the gripper contribution
+     # script and this function is not defined for public usage.
+     all_gripper_limits = get_all_gripper_limits(slave_ids)
+     driver_gripper_client.move(slave_ids, position, RQ_UNIT_PERCENT, all_gripper_limits)
+  end
+  
+  def rq_move_and_wait_norm_multi_grippers(position, slave_ids=[9]):
+       all_gripper_limits = get_all_gripper_limits(slave_ids)
+       driver_gripper_client.move(slave_ids, position, RQ_UNIT_PERCENT, all_gripper_limits)
+       rq_wait_for_motion_complete(slave_ids)
+  end
+  
+  def rq_move_and_wait(position, unit, gripper_socket="1"):
+     rq_wait_for_gripper_reconnection()
+     slave_id = gripper_socket_to_slave_id(to_str(gripper_socket))
+     all_gripper_limits = get_all_gripper_limits([slave_id])
+     driver_gripper_client.move([slave_id], position, unit, all_gripper_limits)
+     rq_wait_for_motion_complete([slave_id])
+  end
+  
+  def rq_move_and_wait_norm(position, gripper_socket="1"):
+      rq_move_and_wait(position, RQ_UNIT_PERCENT, gripper_socket)
+  end
+  
+  def rq_move_and_wait_mm(position, gripper_socket="1"):
+      rq_move_and_wait(position, RQ_UNIT_MM, gripper_socket)
+  end
+  
+  def rq_move_and_wait_inches(position, gripper_socket="1"):
+     rq_move_and_wait(position, RQ_UNIT_INCH, gripper_socket)
+  end
+  
+  def rq_is_object_detected(gripper_socket="1"):
+     slave_id = gripper_socket_to_slave_id(gripper_socket)
+     return driver_gripper_client.isObjectDetected(slave_id)
+  end
+  
+  def rq_current_pos_norm(gripper_socket="1"):
+      slave_id = gripper_socket_to_slave_id(gripper_socket)
+      gripper_limits = get_gripper_limits(gripper_socket)
+      return driver_gripper_client.getCurrentPosition(slave_id,
+                                    RQ_UNIT_PERCENT,
+                                    gripper_limits[0],
+                                    gripper_limits[1],
+                                    gripper_limits[2],
+                                    gripper_limits[3])
+  end
+  
+  def rq_current_pos_mm(gripper_socket=1):
+      slave_id = gripper_socket_to_slave_id(to_str(gripper_socket))
+      gripper_limits = get_gripper_limits(to_str(gripper_socket))
+      return driver_gripper_client.getCurrentPosition(slave_id,
+                                    RQ_UNIT_MM,
+                                    gripper_limits[0],
+                                    gripper_limits[1],
+                                    gripper_limits[2],
+                                    gripper_limits[3])
+  end
+  
+  def rq_current_pos_inches(gripper_socket=1):
+      slave_id = gripper_socket_to_slave_id(to_str(gripper_socket))
+      gripper_limits = get_gripper_limits(to_str(gripper_socket))
+      return driver_gripper_client.getCurrentPosition(slave_id,
+                                    RQ_UNIT_INCH,
+                                    gripper_limits[0],
+                                    gripper_limits[1],
+                                    gripper_limits[2],
+                                    gripper_limits[3])
+  end
+  
+  def rq_reset(gripper_socket="1"):
+      slave_id = gripper_socket_to_slave_id(gripper_socket)
+      driver_gripper_client.deactivate([slave_id])
+  end
+  
+  def rq_set_gripper_max_cur(current_mA, gripper_socket="1"):
+      rq_wait_for_gripper_reconnection()
+      slave_id = gripper_socket_to_slave_id(gripper_socket)
+      driver_gripper_client.setMaximumCurrent(current_mA, slave_id)
+  end
+  
+  def rq_get_gripper_max_cur(gripper_socket="1"):
+      slave_id = gripper_socket_to_slave_id(gripper_socket)
+      return driver_gripper_client.getMaximumCurrent(slave_id)
+  end
+  
+  def rq_set_max_current_for_all_grippers():
+      rq_wait_for_gripper_reconnection()
+      driver_gripper_client.setMaximumCurrentOnAllGrippers(rq_current_limit_enabled)
+  end
+  
+  def rq_is_gripper_activated(slave_id=9):
+      return driver_gripper_client.isGripperActivated(slave_id)
+  end
+  
+  def rq_is_gripper_connected(slave_id=9):
+      return driver_gripper_client.isGripperConnected(slave_id)
+  end
+  
+  def rq_get_fault(slave_id=9):
+      return driver_gripper_client.getFault(slave_id)
+  end
+  
+  def rq_activate_and_wait(gripper_socket="1"):
+      slave_id = gripper_socket_to_slave_id(gripper_socket)
+      if (not rq_is_gripper_activated(slave_id)):
+        driver_gripper_client.activate([slave_id], False)
+      end
+  end
+  
+  def rq_activate_all_grippers(reset=False):
+      empty_array_used_to_act_on_all_grippers = []
+      if (reset):
+        driver_gripper_client.activate(empty_array_used_to_act_on_all_grippers, True)
+      else:
+        driver_gripper_client.activateIfRequired(empty_array_used_to_act_on_all_grippers)
+      end
+  end
+  
+  def get_closed_norm(gripper_socket):
+      return gripper_closed_norm[rq_gripper_socket_to_index(gripper_socket)]
+  end
+  
+  def get_open_norm(gripper_socket):
+      return gripper_open_norm[rq_gripper_socket_to_index(gripper_socket)]
+  end
+  
+  def get_open_mm(gripper_socket):
+      return gripper_open_mm[rq_gripper_socket_to_index(gripper_socket)]
+  end
+  
+  def get_closed_mm(gripper_socket):
+      return gripper_closed_mm[rq_gripper_socket_to_index(gripper_socket)]
+  end
+  
+  def set_closed_norm(closed_norm, gripper_socket):
+      gripper_closed_norm[rq_gripper_socket_to_index(gripper_socket)] = closed_norm
+  end
+  
+  def set_open_norm(open_norm, gripper_socket):
+      gripper_open_norm[rq_gripper_socket_to_index(gripper_socket)] = open_norm
+  end
+  
+  def set_closed_mm(closed_mm, gripper_socket):
+      gripper_closed_mm[rq_gripper_socket_to_index(gripper_socket)] = closed_mm
+  end
+  
+  def set_open_mm(opened_mm, gripper_socket):
+      gripper_open_mm[rq_gripper_socket_to_index(gripper_socket)] = opened_mm
+  end
+  
+  def slave_id_to_gripper_socket(slave_id):
+      if slave_id == 9:
+          return "1"
+      else:
+          return to_str(slave_id)
+      end
+  end
+  
+  def gripper_socket_to_slave_id(gripper_socket):
+      if gripper_socket == "1":
+          return 9
+      else:
+          return to_num(gripper_socket)
+      end
+  end
+  
+  def rq_slave_id_to_index(slave_id):
+      if slave_id == 9:
+          return 0
+      else:
+          return slave_id - 1
+      end
+  end
+  
+  def rq_gripper_socket_to_index(gripper_socket):
+      return to_num(gripper_socket) - 1
+  end
+  
+  def get_all_gripper_limits(slave_ids):
+     all_gripper_limits = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+     nb_slave_ids = get_list_length(slave_ids)
+     slave_id_index = 0
+     index = 0
+     sub_index = 0
+     while (index < nb_slave_ids):
+         slave_id_index = 0
+         items_per_limit = 4
+         gripper_socket = slave_id_to_gripper_socket(slave_ids[index])
+         gripper_limits = get_gripper_limits(gripper_socket)
+         while (sub_index < items_per_limit):
+            all_gripper_limits[index] = gripper_limits[sub_index]
+            sub_index = sub_index + 1
+            index = index + 1
+         end
+         index = index + 1
+     end
+  
+     return all_gripper_limits
+  end
+  
+  def get_gripper_limits(gripper_socket):
+      return [get_closed_norm(gripper_socket),
+              get_open_norm(gripper_socket),
+              get_closed_mm(gripper_socket),
+              get_open_mm(gripper_socket)]
+  end
+  
+  def rq_wait_for_motion_complete(slave_ids):
+      nb_slave_ids = get_list_length(slave_ids)
+      index = 0
+      while (index < nb_slave_ids):
+        rq_wait(slave_ids[index])
+        index = index + 1
+      end
+  end
+  
+  def rq_stop(gripper_socket="1"):
+      slave_id = gripper_socket_to_slave_id(gripper_socket)
+      driver_gripper_client.goto(slave_id, 0)
+  end
+  
+  def rq_wait(slave_id):
+      # Wait for the gripper motion to complete
+      while (not rq_is_motion_complete(slave_id)):
+          # The following patch is for Robotiq's Camera issue when communication is lost, but not the activation
+          # the communication driver reset the GTO bit
+          driver_gripper_client.goto(slave_id, 1)
+          sleep(0.1)
+      end
+  end
+  
+  def rq_is_motion_complete(slave_id):
+      detection_flag = driver_gripper_client.getObjectDetectionFlag(slave_id)
+      return detection_flag > 0 and detection_flag < 4
+  end
+  
+  def write_error_popup(index, message_part_1, message_part_2, title):
+      popup_message_part_1 = str_cat(message_part_1, index)
+      popup_message_part_2 = str_cat(popup_message_part_1, " ")
+      popup_message = str_cat(popup_message_part_2, message_part_2)
+      return popup(popup_message, title, False, True, True)
+  end
+  
+  def rq_disconnect_grippers():
+      driver_gripper_client.pauseAndDisconnect()
+  end
+  
+  def rq_reconnect_grippers(blocking=False, slave_ids=[]):
+      if blocking:
+          global gripper_reconnecting = True
+          driver_gripper_client.reconnectAndResume(slave_ids)
+          gripper_reconnecting = False
+      else:
+          thread recon_thread():
+              rq_reconnect_grippers(True)
+              return False
+          end
+          thrd = run recon_thread()
+      end
+  end
+  
+  def rq_wait_for_gripper_reconnection(timeout_s = 30.0):
+      while (gripper_reconnecting == True):
+          if (timeout_s <= 0):
+            popup("Gripper has not reconnected before the expected time")
+            halt
+          else:
+            sync()
+            timeout_s = timeout_s - get_steptime()
+          end
+      end
+  end
+  
+  def rq_gripper_allow_tool_com(allow_tool_comm):
+      driver_gripper_client.allowToolComm(allow_tool_comm)
+  end
+  set_closed_norm(100.0, "1")
+  set_open_norm(0.0, "1")
+  set_closed_mm(0.0, "1")
+  set_open_mm(50.0, "1")
+  set_closed_norm(100.0, "2")
+  set_open_norm(0.0, "2")
+  set_closed_mm(0.0, "2")
+  set_open_mm(50.0, "2")
+  set_closed_norm(100.0, "3")
+  set_open_norm(0.0, "3")
+  set_closed_mm(0.0, "3")
+  set_open_mm(50.0, "3")
+  set_closed_norm(100.0, "4")
+  set_open_norm(0.0, "4")
+  set_closed_mm(0.0, "4")
+  set_open_mm(50.0, "4")
+  rq_current_limit_enabled = False
+  # end: URCap Installation Node
+  global Pallet_1_cnt=1
+  global Pallet_1_lct=1
+  global Pallet_1_lno=1
+  global Pallet_1_sep= False 
+  global Pallet_1_tct=1
+  global Pallet_2_cnt=1
+  global Pallet_2_lct=1
+  global Pallet_2_lno=1
+  global Pallet_2_sep= False 
+  global Pallet_2_tct=1
+  global qNearApproach=[0,0,0,0,0,0]
+  global qNearApproach_1=[0,0,0,0,0,0]
+  global Waypoint_2_p=p[.259302155611, -.252628393310, .173962899715, -2.219388820156, 2.223296324294, .000087472291]
+  global Waypoint_2_q=[-0.4017625179455848, -1.7386683633002527, -1.2870012265569075, -1.685584013076312, 1.563197044203114, -0.40182390501885834]
+  global Waypoint_1_p=p[-.119652563791, -.338662285042, .844702539942, .294047524962, -1.255353608254, 2.466928678440]
+  global Waypoint_1_q=[-1.522388760243551, -1.7722178898253382, -0.1652507781982422, -0.578509048824646, 1.552154779434204, -0.4446294943438929]
+  global Waypoint_4_p=p[-.138112576568, -.549996716970, .596068676896, .420262707987, -1.963245537940, 1.974168868046]
+  global Waypoint_4_q=[-1.573536221181051, -1.8071133098998011, -0.7439303398132324, -0.5793632429889222, 1.552382230758667, -0.44458133379091436]
+  global Waypoint_7_p=p[-.577031666526, .015543724895, .589633492265, .250689179179, -1.570094661585, .266540035204]
+  global Waypoint_7_q=[-3.0968438751905243, -2.0296242152419133, -0.4065332517466329, -0.719016451558641, 1.8522173027516287, -1.563943475514474]
+  global Waypoint_8_p=p[.725085444071, -.053783133781, .459508262841, 1.096133088902, -.069506357100, 2.847866643531]
+  global Waypoint_8_q=[2.825260639190674, -0.41890902936969, 0.2824772039996546, -0.7079172295382996, 1.4293357133865356, 1.7389501333236694]
+  global Waypoint_9_p=p[.772784014077, -.068711867533, .327248102210, 1.693981286706, -.235696543520, 2.580855705375]
+  global Waypoint_9_q=[2.825249195098877, -0.42092402399096684, 0.28242475191225225, -0.2644835275462647, 1.429378628730774, 1.7389583587646484]
+  global Waypoint_6_p=p[.423628106530, -.535116674505, .318549428795, 1.399465446959, -.621393606371, .380451879838]
+  global Waypoint_6_q=[-0.1867283026324671, -2.775607248345846, -0.014471420086920261, -2.0323339901366175, -0.056391541157857716, -0.8018382231341761]
+  def calculate_point_to_move_towards(feature, direction, position_distance):
+    local posDir=[direction[0], direction[1], direction[2]]
+    if (norm(posDir) < 1e-6):
+      return get_target_waypoint()
+    end
+    local direction_vector_normalized=normalize(posDir)
+    local displacement_pose=p[direction_vector_normalized[0] * position_distance,direction_vector_normalized[1] * position_distance,direction_vector_normalized[2] * position_distance,0,0,0]
+    local wanted_displacement_in_base_frame=pose_sub(pose_trans(feature, displacement_pose), feature)
+    return pose_add(get_target_waypoint(), wanted_displacement_in_base_frame)
+  end
+  global Approach_p=p[.273603530231, .063180307174, -.009251547664, -3.141563916939, -.000068722823, .000015608193]
+  global Approach_q=[0.7125839462156305, -1.436780274523799, -2.112351159416935, -1.16205623564559, 1.5624905432240928, -0.861558549144104]
+  global ToolActionPoint_p=p[.273602410732, .063177092368, -.048894226792, -3.141569622431, -.000043504896, .000005605576]
+  global ToolActionPoint_q=[0.7129322865690639, -1.53644531648108, -2.2393520259244797, -0.9354550313149534, 1.563636068107217, -0.8628699890157243]
+  global Exit_1_p=p[.273614304681, .063172136526, -.004714818549, -3.141586571892, -.000030089665, -.000041422272]
+  global Exit_1_q=[0.7125409124289748, -1.4283598171996328, -2.0962724105153825, -1.1865560840485934, 1.5623956419713523, -0.8614049610710861]
+  global Approach_1_p=p[.391334747977, -.000000601992, .023567123594, 3.141328352065, -.040205343512, .000137452205]
+  global Approach_1_q=[0.34097159040885927, -1.8819971383840723, -1.4593954333032917, -1.3696914389760302, 1.5635046528357979, -1.2059405768637497]
+  global ToolActionPoi_1_p=p[.391359894235, .000067811317, -.048850332854, -3.141292271317, .039972388478, -.000204611493]
+  global ToolActionPoi_1_q=[0.3415250785243762, -1.9878965940842601, -1.672514650376331, -1.0508060193098352, 1.56462146046287, -1.2078106900247505]
+  global Exit_2_p=p[.391356521623, .000045247958, .035575608150, -3.141319879500, .040023406587, -.000225530511]
+  global Exit_2_q=[0.3408614015084949, -1.87328702746591, -1.4139970265874684, -1.423801300942654, 1.5634249827947988, -1.2056119720690894]
+  global Waypoint_3_p=p[-.194644857575, -.252999367033, .139549772338, -2.169279928869, 2.272405962606, .000000000010]
+  global Waypoint_3_q=[-1.8063467571213963, -1.5794701724148865, -1.267050894060854, -1.8647375258759382, 1.5629554095750973, -1.7575603275091236]
+  global Waypoint_5_p=p[-.194645278321, -.253001206370, .000118683542, -2.169279878313, 2.272405929063, -.000000098293]
+  global Waypoint_5_q=[-1.8048397478448894, -1.6032347092627912, -1.9091291610736487, -1.1988734740784874, 1.5629315614254509, -1.7614861182409403]
+  def pas_on():
+    $ 117 "pas_on" "noBreak"
+    $ 118 "Set Dopravnik=On"
+    set_standard_digital_out(2, True)
+  end
+  def pas_off():
+    $ 119 "pas_off" "noBreak"
+    $ 120 "Set Dopravnik=Off"
+    set_standard_digital_out(2, False)
+  end
+  $ 2 "BeforeStart"
+  $ 3 "pocitadlo≔0"
+  global pocitadlo=0
+  # begin: URCap Program Node
+  #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+  #   Type: Gripper Activate
+  $ 4 "Gripper Activate"
+  
+  rq_set_max_current_for_all_grippers()
+  
+  reset_and_activate = False
+  
+  rq_activate_all_grippers(False)
+  # end: URCap Program Node
+  while (True):
+    $ 5 "Robot Program"
+    $ 6 "MoveJ"
+    $ 7 "Waypoint_2" "breakAfter"
+    movej(get_inverse_kin(Waypoint_2_p, qnear=Waypoint_2_q), a=1.3962634015954636, v=4.1887902047863905)
+    $ 8 "If pocitadlo≟12"
+    if (pocitadlo == 12):
+      $ 9 "MoveJ"
+      $ 10 "Waypoint_1" "breakAfter"
+      movej(get_inverse_kin(Waypoint_1_p, qnear=Waypoint_1_q), a=2.0943951023931953, v=4.1887902047863905)
+      $ 11 "Waypoint_4" "breakAfter"
+      movej(get_inverse_kin(Waypoint_4_p, qnear=Waypoint_4_q), a=2.0943951023931953, v=4.1887902047863905)
+      $ 12 "Waypoint_1" "breakAfter"
+      movej(get_inverse_kin(Waypoint_1_p, qnear=Waypoint_1_q), a=2.0943951023931953, v=4.1887902047863905)
+      $ 13 "Waypoint_4" "breakAfter"
+      movej(get_inverse_kin(Waypoint_4_p, qnear=Waypoint_4_q), a=2.0943951023931953, v=4.1887902047863905)
+      $ 14 "Waypoint_1" "breakAfter"
+      movej(get_inverse_kin(Waypoint_1_p, qnear=Waypoint_1_q), a=2.0943951023931953, v=4.1887902047863905)
+      $ 15 "Waypoint_4" "breakAfter"
+      movej(get_inverse_kin(Waypoint_4_p, qnear=Waypoint_4_q), a=2.0943951023931953, v=4.1887902047863905)
+      $ 16 "Waypoint_1" "breakAfter"
+      movej(get_inverse_kin(Waypoint_1_p, qnear=Waypoint_1_q), a=2.0943951023931953, v=4.1887902047863905)
+      $ 17 "Waypoint_4" "breakAfter"
+      movej(get_inverse_kin(Waypoint_4_p, qnear=Waypoint_4_q), a=2.0943951023931953, v=4.1887902047863905)
+      $ 18 "Waypoint_7" "breakAfter"
+      movej(get_inverse_kin(Waypoint_7_p, qnear=Waypoint_7_q), a=2.0943951023931953, v=4.1887902047863905)
+      # begin: URCap Program Node
+      #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+      #   Type: Gripper
+      $ 19 "Gripper Close (1)"
+      gripper_slave_ids_0 = [9]
+      popupErrorGripperWord = "Gripper"
+      popupErrorNoConnection1 = "must be connected to run this program."
+      popupErrorNoConnection2 = "No connection"
+      popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+      popupErrorNotActivated2 = "Not activated"
+      rq_gripper_speed = 100.0
+      rq_gripper_force = 100.0
+      rq_gripper_position = 100.0
+      rq_is_blocking = True
+      rq_is_robot_compliant = False
+      nb_slave_ids = get_list_length(gripper_slave_ids_0)
+      rq_wait_for_gripper_reconnection()
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_connected(gripper_slave_ids_0[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+          end
+          index = index + 1
+      end
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_activated(gripper_slave_ids_0[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+          end
+          index = index + 1
+      end
+      rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_0)
+      rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_0)
+      if (rq_is_blocking):
+          if rq_is_robot_compliant:
+              zero_ftsensor()
+              sleep(0.02)
+              # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+              force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+          end
+          rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_0)
+          if rq_is_robot_compliant:
+              end_force_mode()
+          end
+      else:
+          rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_0)
+      end
+      # end: URCap Program Node
+      # begin: URCap Program Node
+      #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+      #   Type: Gripper
+      $ 20 "Gripper Move52% (1)"
+      gripper_slave_ids_1 = [9]
+      popupErrorGripperWord = "Gripper"
+      popupErrorNoConnection1 = "must be connected to run this program."
+      popupErrorNoConnection2 = "No connection"
+      popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+      popupErrorNotActivated2 = "Not activated"
+      rq_gripper_speed = 100.0
+      rq_gripper_force = 100.0
+      rq_gripper_position = 52.15686274509804
+      rq_is_blocking = True
+      rq_is_robot_compliant = False
+      nb_slave_ids = get_list_length(gripper_slave_ids_1)
+      rq_wait_for_gripper_reconnection()
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_connected(gripper_slave_ids_1[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+          end
+          index = index + 1
+      end
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_activated(gripper_slave_ids_1[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+          end
+          index = index + 1
+      end
+      rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_1)
+      rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_1)
+      if (rq_is_blocking):
+          if rq_is_robot_compliant:
+              zero_ftsensor()
+              sleep(0.02)
+              # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+              force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+          end
+          rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_1)
+          if rq_is_robot_compliant:
+              end_force_mode()
+          end
+      else:
+          rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_1)
+      end
+      # end: URCap Program Node
+      # begin: URCap Program Node
+      #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+      #   Type: Gripper
+      $ 21 "Gripper Close (1)"
+      gripper_slave_ids_2 = [9]
+      popupErrorGripperWord = "Gripper"
+      popupErrorNoConnection1 = "must be connected to run this program."
+      popupErrorNoConnection2 = "No connection"
+      popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+      popupErrorNotActivated2 = "Not activated"
+      rq_gripper_speed = 100.0
+      rq_gripper_force = 100.0
+      rq_gripper_position = 100.0
+      rq_is_blocking = True
+      rq_is_robot_compliant = False
+      nb_slave_ids = get_list_length(gripper_slave_ids_2)
+      rq_wait_for_gripper_reconnection()
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_connected(gripper_slave_ids_2[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+          end
+          index = index + 1
+      end
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_activated(gripper_slave_ids_2[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+          end
+          index = index + 1
+      end
+      rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_2)
+      rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_2)
+      if (rq_is_blocking):
+          if rq_is_robot_compliant:
+              zero_ftsensor()
+              sleep(0.02)
+              # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+              force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+          end
+          rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_2)
+          if rq_is_robot_compliant:
+              end_force_mode()
+          end
+      else:
+          rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_2)
+      end
+      # end: URCap Program Node
+      # begin: URCap Program Node
+      #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+      #   Type: Gripper
+      $ 22 "Gripper Move52% (1)"
+      gripper_slave_ids_3 = [9]
+      popupErrorGripperWord = "Gripper"
+      popupErrorNoConnection1 = "must be connected to run this program."
+      popupErrorNoConnection2 = "No connection"
+      popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+      popupErrorNotActivated2 = "Not activated"
+      rq_gripper_speed = 100.0
+      rq_gripper_force = 100.0
+      rq_gripper_position = 52.15686274509804
+      rq_is_blocking = True
+      rq_is_robot_compliant = False
+      nb_slave_ids = get_list_length(gripper_slave_ids_3)
+      rq_wait_for_gripper_reconnection()
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_connected(gripper_slave_ids_3[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+          end
+          index = index + 1
+      end
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_activated(gripper_slave_ids_3[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+          end
+          index = index + 1
+      end
+      rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_3)
+      rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_3)
+      if (rq_is_blocking):
+          if rq_is_robot_compliant:
+              zero_ftsensor()
+              sleep(0.02)
+              # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+              force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+          end
+          rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_3)
+          if rq_is_robot_compliant:
+              end_force_mode()
+          end
+      else:
+          rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_3)
+      end
+      # end: URCap Program Node
+      # begin: URCap Program Node
+      #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+      #   Type: Gripper
+      $ 23 "Gripper Close (1)"
+      gripper_slave_ids_4 = [9]
+      popupErrorGripperWord = "Gripper"
+      popupErrorNoConnection1 = "must be connected to run this program."
+      popupErrorNoConnection2 = "No connection"
+      popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+      popupErrorNotActivated2 = "Not activated"
+      rq_gripper_speed = 100.0
+      rq_gripper_force = 100.0
+      rq_gripper_position = 100.0
+      rq_is_blocking = True
+      rq_is_robot_compliant = False
+      nb_slave_ids = get_list_length(gripper_slave_ids_4)
+      rq_wait_for_gripper_reconnection()
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_connected(gripper_slave_ids_4[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+          end
+          index = index + 1
+      end
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_activated(gripper_slave_ids_4[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+          end
+          index = index + 1
+      end
+      rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_4)
+      rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_4)
+      if (rq_is_blocking):
+          if rq_is_robot_compliant:
+              zero_ftsensor()
+              sleep(0.02)
+              # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+              force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+          end
+          rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_4)
+          if rq_is_robot_compliant:
+              end_force_mode()
+          end
+      else:
+          rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_4)
+      end
+      # end: URCap Program Node
+      # begin: URCap Program Node
+      #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+      #   Type: Gripper
+      $ 24 "Gripper Move52% (1)"
+      gripper_slave_ids_5 = [9]
+      popupErrorGripperWord = "Gripper"
+      popupErrorNoConnection1 = "must be connected to run this program."
+      popupErrorNoConnection2 = "No connection"
+      popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+      popupErrorNotActivated2 = "Not activated"
+      rq_gripper_speed = 100.0
+      rq_gripper_force = 100.0
+      rq_gripper_position = 52.15686274509804
+      rq_is_blocking = True
+      rq_is_robot_compliant = False
+      nb_slave_ids = get_list_length(gripper_slave_ids_5)
+      rq_wait_for_gripper_reconnection()
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_connected(gripper_slave_ids_5[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+          end
+          index = index + 1
+      end
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_activated(gripper_slave_ids_5[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+          end
+          index = index + 1
+      end
+      rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_5)
+      rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_5)
+      if (rq_is_blocking):
+          if rq_is_robot_compliant:
+              zero_ftsensor()
+              sleep(0.02)
+              # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+              force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+          end
+          rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_5)
+          if rq_is_robot_compliant:
+              end_force_mode()
+          end
+      else:
+          rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_5)
+      end
+      # end: URCap Program Node
+      $ 25 "MoveJ"
+      $ 26 "Waypoint_8" "breakAfter"
+      movej(get_inverse_kin(Waypoint_8_p, qnear=Waypoint_8_q), a=1.3962634015954636, v=1.0471975511965976)
+      # begin: URCap Program Node
+      #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+      #   Type: Gripper
+      $ 27 "Gripper Move66% (1)"
+      gripper_slave_ids_6 = [9]
+      popupErrorGripperWord = "Gripper"
+      popupErrorNoConnection1 = "must be connected to run this program."
+      popupErrorNoConnection2 = "No connection"
+      popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+      popupErrorNotActivated2 = "Not activated"
+      rq_gripper_speed = 32.0
+      rq_gripper_force = 100.0
+      rq_gripper_position = 65.88235294117646
+      rq_is_blocking = True
+      rq_is_robot_compliant = False
+      nb_slave_ids = get_list_length(gripper_slave_ids_6)
+      rq_wait_for_gripper_reconnection()
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_connected(gripper_slave_ids_6[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+          end
+          index = index + 1
+      end
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_activated(gripper_slave_ids_6[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+          end
+          index = index + 1
+      end
+      rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_6)
+      rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_6)
+      if (rq_is_blocking):
+          if rq_is_robot_compliant:
+              zero_ftsensor()
+              sleep(0.02)
+              # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+              force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+          end
+          rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_6)
+          if rq_is_robot_compliant:
+              end_force_mode()
+          end
+      else:
+          rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_6)
+      end
+      # end: URCap Program Node
+      $ 28 "MoveJ"
+      $ 29 "Waypoint_8" "breakAfter"
+      movej(get_inverse_kin(Waypoint_8_p, qnear=Waypoint_8_q), a=1.3962634015954636, v=4.1887902047863905)
+      $ 30 "Waypoint_9" "breakAfter"
+      movej(get_inverse_kin(Waypoint_9_p, qnear=Waypoint_9_q), a=1.3962634015954636, v=4.1887902047863905)
+      $ 31 "Waypoint_8" "breakAfter"
+      movej(get_inverse_kin(Waypoint_8_p, qnear=Waypoint_8_q), a=1.3962634015954636, v=4.1887902047863905)
+      $ 32 "Waypoint_9" "breakAfter"
+      movej(get_inverse_kin(Waypoint_9_p, qnear=Waypoint_9_q), a=1.3962634015954636, v=4.1887902047863905)
+      $ 33 "Waypoint_8" "breakAfter"
+      movej(get_inverse_kin(Waypoint_8_p, qnear=Waypoint_8_q), a=1.3962634015954636, v=4.1887902047863905)
+      $ 34 "Waypoint_9" "breakAfter"
+      movej(get_inverse_kin(Waypoint_9_p, qnear=Waypoint_9_q), a=1.3962634015954636, v=4.1887902047863905)
+    end
+    $ 35 "If pocitadlo≟12"
+    if (pocitadlo == 12):
+      $ 36 "pocitadlo≔0"
+      global pocitadlo=0
+    end
+    $ 37 "If pocitadlo≟0 and digital_in[0]≟ True "
+    if (pocitadlo == 0  and  get_standard_digital_in(0) ==   True  ):
+      $ 38 "MoveJ"
+      $ 39 "Waypoint_6" "breakAfter"
+      movej(get_inverse_kin(Waypoint_6_p, qnear=Waypoint_6_q), a=1.3962634015954636, v=4.1887902047863905)
+      # begin: URCap Program Node
+      #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+      #   Type: Gripper
+      $ 40 "Gripper Open (1)"
+      gripper_slave_ids_7 = [9]
+      popupErrorGripperWord = "Gripper"
+      popupErrorNoConnection1 = "must be connected to run this program."
+      popupErrorNoConnection2 = "No connection"
+      popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+      popupErrorNotActivated2 = "Not activated"
+      rq_gripper_speed = 20.0
+      rq_gripper_force = 100.0
+      rq_gripper_position = 0.0
+      rq_is_blocking = True
+      rq_is_robot_compliant = False
+      nb_slave_ids = get_list_length(gripper_slave_ids_7)
+      rq_wait_for_gripper_reconnection()
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_connected(gripper_slave_ids_7[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+          end
+          index = index + 1
+      end
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_activated(gripper_slave_ids_7[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+          end
+          index = index + 1
+      end
+      rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_7)
+      rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_7)
+      if (rq_is_blocking):
+          if rq_is_robot_compliant:
+              zero_ftsensor()
+              sleep(0.02)
+              # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+              force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+          end
+          rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_7)
+          if rq_is_robot_compliant:
+              end_force_mode()
+          end
+      else:
+          rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_7)
+      end
+      # end: URCap Program Node
+      $ 41 "Wait get_tcp_force()>15"
+      while (not( get_tcp_force ()>15)):
+        sync()
+      end
+      $ 42 "Wait: 0.5"
+      sleep(0.5)
+    end
+    $ 43 "If Sensor_vzadu≟ False "
+    if (get_standard_digital_in(2) ==   False  ):
+      $ 44 "Call pas_on"
+      pas_on()
+    end
+    $ 45 "MoveJ"
+    $ 46 "Waypoint_2" "breakAfter"
+    movej(get_inverse_kin(Waypoint_2_p, qnear=Waypoint_2_q), a=1.3962634015954636, v=4.1887902047863905)
+    $ 47 "Wait Sensor_vzadu=HI"
+    while (get_standard_digital_in(2) == False):
+      sync()
+    end
+    $ 48 "Wait: 0.1"
+    sleep(0.1)
+    $ 49 "Call pas_off"
+    pas_off()
+    $ 50 "If pocitadlo<6"
+    if (pocitadlo<6):
+      # begin: URCap Program Node
+      #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+      #   Type: Gripper
+      $ 51 "Gripper Close (1)"
+      gripper_slave_ids_8 = [9]
+      popupErrorGripperWord = "Gripper"
+      popupErrorNoConnection1 = "must be connected to run this program."
+      popupErrorNoConnection2 = "No connection"
+      popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+      popupErrorNotActivated2 = "Not activated"
+      rq_gripper_speed = 70.0
+      rq_gripper_force = 54.0
+      rq_gripper_position = 100.0
+      rq_is_blocking = True
+      rq_is_robot_compliant = False
+      nb_slave_ids = get_list_length(gripper_slave_ids_8)
+      rq_wait_for_gripper_reconnection()
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_connected(gripper_slave_ids_8[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+          end
+          index = index + 1
+      end
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_activated(gripper_slave_ids_8[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+          end
+          index = index + 1
+      end
+      rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_8)
+      rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_8)
+      if (rq_is_blocking):
+          if rq_is_robot_compliant:
+              zero_ftsensor()
+              sleep(0.02)
+              # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+              force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+          end
+          rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_8)
+          if rq_is_robot_compliant:
+              end_force_mode()
+          end
+      else:
+          rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_8)
+      end
+      # end: URCap Program Node
+      $ 52 "MoveL"
+      $ 53 "Direction: Base Z-"
+      global move_thread_flag_53=0
+      thread move_thread_53():
+        enter_critical
+        move_thread_flag_53 = 1
+        local towardsPos=calculate_point_to_move_towards(p[0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,-1.0], 1000.0)
+        movel(towardsPos, a=0.025, v=0.05)
+        move_thread_flag_53 = 2
+        exit_critical
+      end
+      move_thread_flag_53 = 0
+      move_thread_han_53 = run move_thread_53()
+      while (True):
+        local targetTcpDirection=get_target_tcp_speed()
+        local stepsToRetract=tool_contact(direction=targetTcpDirection)
+        if (stepsToRetract > 0):
+          kill move_thread_han_53
+          stopl(3.0)
+          local backTrackMovement=get_actual_joint_positions_history(stepsToRetract)
+          local contactPose=get_forward_kin(backTrackMovement)
+          local posDir=[targetTcpDirection[0],targetTcpDirection[1],targetTcpDirection[2]]
+          local retractTo=contactPose
+          if (norm(posDir) > 1e-6):
+            local normalizedPosDir=normalize(posDir)
+            local additionalRetraction=p[normalizedPosDir[0] * 0.005, normalizedPosDir[1] * 0.005, normalizedPosDir[2] * 0.005, 0, 0, 0]
+            retractTo = pose_sub(contactPose, additionalRetraction)
+          end
+          movel(retractTo, a=3.0, v=0.1)
+          $ 54 "Until (tool_contact_detection)"
+          $ 55 "Direction: Base Z+"
+          global move_thread_flag_55=0
+          thread move_thread_55():
+            enter_critical
+            move_thread_flag_55 = 1
+            local towardsPos=calculate_point_to_move_towards(p[0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,1.0], 0.01)
+            movel(towardsPos, a=1.2, v=0.18)
+            move_thread_flag_55 = 2
+            exit_critical
+          end
+          move_thread_flag_55 = 0
+          move_thread_han_55 = run move_thread_55()
+          while (True):
+            sleep(1.0E-10)
+            if (move_thread_flag_55 > 1):
+              join move_thread_han_55
+              $ 56 "Until (distance)"
+              break
+            end
+            sync()
+          end
+          # begin: URCap Program Node
+          #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+          #   Type: Gripper
+          $ 57 "Gripper Open (1)"
+          gripper_slave_ids_9 = [9]
+          popupErrorGripperWord = "Gripper"
+          popupErrorNoConnection1 = "must be connected to run this program."
+          popupErrorNoConnection2 = "No connection"
+          popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+          popupErrorNotActivated2 = "Not activated"
+          rq_gripper_speed = 80.0
+          rq_gripper_force = 1.1764705882352942
+          rq_gripper_position = 0.0
+          rq_is_blocking = True
+          rq_is_robot_compliant = False
+          nb_slave_ids = get_list_length(gripper_slave_ids_9)
+          rq_wait_for_gripper_reconnection()
+          index = 0
+          while (index < nb_slave_ids):
+              if (not rq_is_gripper_connected(gripper_slave_ids_9[index])):
+                  write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+              end
+              index = index + 1
+          end
+          index = 0
+          while (index < nb_slave_ids):
+              if (not rq_is_gripper_activated(gripper_slave_ids_9[index])):
+                  write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+              end
+              index = index + 1
+          end
+          rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_9)
+          rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_9)
+          if (rq_is_blocking):
+              if rq_is_robot_compliant:
+                  zero_ftsensor()
+                  sleep(0.02)
+                  # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+                  force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+              end
+              rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_9)
+              if rq_is_robot_compliant:
+                  end_force_mode()
+              end
+          else:
+              rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_9)
+          end
+          # end: URCap Program Node
+          $ 58 "Direction: Base Z-"
+          global move_thread_flag_58=0
+          thread move_thread_58():
+            enter_critical
+            move_thread_flag_58 = 1
+            local towardsPos=calculate_point_to_move_towards(p[0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,-1.0], 0.025)
+            movel(towardsPos, a=1.2, v=0.18)
+            move_thread_flag_58 = 2
+            exit_critical
+          end
+          move_thread_flag_58 = 0
+          move_thread_han_58 = run move_thread_58()
+          while (True):
+            sleep(1.0E-10)
+            if (move_thread_flag_58 > 1):
+              join move_thread_han_58
+              $ 59 "Until (distance)"
+              break
+            end
+            sync()
+          end
+          $ 60 "pocitadlo≔pocitadlo+1"
+          global pocitadlo=pocitadlo+1
+          # begin: URCap Program Node
+          #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+          #   Type: Gripper
+          $ 61 "Gripper Move44% (1)"
+          gripper_slave_ids_10 = [9]
+          popupErrorGripperWord = "Gripper"
+          popupErrorNoConnection1 = "must be connected to run this program."
+          popupErrorNoConnection2 = "No connection"
+          popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+          popupErrorNotActivated2 = "Not activated"
+          rq_gripper_speed = 70.0
+          rq_gripper_force = 39.0
+          rq_gripper_position = 44.31372549019608
+          rq_is_blocking = True
+          rq_is_robot_compliant = False
+          nb_slave_ids = get_list_length(gripper_slave_ids_10)
+          rq_wait_for_gripper_reconnection()
+          index = 0
+          while (index < nb_slave_ids):
+              if (not rq_is_gripper_connected(gripper_slave_ids_10[index])):
+                  write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+              end
+              index = index + 1
+          end
+          index = 0
+          while (index < nb_slave_ids):
+              if (not rq_is_gripper_activated(gripper_slave_ids_10[index])):
+                  write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+              end
+              index = index + 1
+          end
+          rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_10)
+          rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_10)
+          if (rq_is_blocking):
+              if rq_is_robot_compliant:
+                  zero_ftsensor()
+                  sleep(0.02)
+                  # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+                  force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+              end
+              rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_10)
+              if rq_is_robot_compliant:
+                  end_force_mode()
+              end
+          else:
+              rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_10)
+          end
+          # end: URCap Program Node
+          $ 62 "Direction: Base Z+"
+          global move_thread_flag_62=0
+          thread move_thread_62():
+            enter_critical
+            move_thread_flag_62 = 1
+            local towardsPos=calculate_point_to_move_towards(p[0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,1.0], 0.06)
+            movel(towardsPos, a=1.2, v=0.18)
+            move_thread_flag_62 = 2
+            exit_critical
+          end
+          move_thread_flag_62 = 0
+          move_thread_han_62 = run move_thread_62()
+          while (True):
+            sleep(1.0E-10)
+            if (move_thread_flag_62 > 1):
+              join move_thread_han_62
+              $ 63 "Until (distance)"
+              break
+            end
+            sync()
+          end
+          $ 64 "Call pas_off"
+          pas_off()
+          $ 65 "Pallet_1"
+          def Pallet_1_trans(pose):
+          return p[pose[0], pose[1], pose[2], 0, 0, 0]
+        end
+        def Pallet_1_rot(pose):
+        return p[0, 0, 0, pose[3], pose[4], pose[5]]
+        end
+        def Pallet_1_compute_pallet_waypoint(T_base_feature_taught, T_feature_referencePoint_taught, T_referencePoint_approach_taught, T_base_feature, T_base_referencePoint):
+        local trans_referencePoint_approach_in_feature_taught = pose_sub(Pallet_1_trans(pose_trans(T_feature_referencePoint_taught, T_referencePoint_approach_taught)), Pallet_1_trans(T_feature_referencePoint_taught))
+        local rot_referencePoint_approach_in_feature_taught = pose_trans(Pallet_1_rot(T_feature_referencePoint_taught), pose_trans(Pallet_1_rot(T_referencePoint_approach_taught), pose_inv(Pallet_1_rot(T_feature_referencePoint_taught))))
+        T_feature_referencePoint = pose_trans(pose_inv(T_base_feature), T_base_referencePoint)
+        rot_referencePoint_approach = pose_trans(pose_inv(Pallet_1_rot(T_feature_referencePoint)), pose_trans(rot_referencePoint_approach_in_feature_taught, Pallet_1_rot(T_feature_referencePoint)))
+        T_feature_approach = pose_trans(trans_referencePoint_approach_in_feature_taught, pose_trans(T_feature_referencePoint, rot_referencePoint_approach))
+        T_base_approach = pose_trans(T_base_feature, T_feature_approach)
+        return T_base_approach
+        end
+        Pallet_1_tct = 6
+        if (Pallet_1_cnt > 6 or Pallet_1_cnt < 1):
+          Pallet_1_cnt = 1
+        end
+        $ 66 "Patterns" "noBreak"
+        $ 67 "Grid_Pattern_1" "noBreak"
+        $ 72 "Layers" "noBreak"
+        if (Pallet_1_cnt < 7):
+          Pallet_1_lno = 1
+          Pallet_1_lct = Pallet_1_cnt
+          global CornerItem_1=pose_trans(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(p[-.000000000000, -.000000000000, -.000000000000, .000000000000, .000000000000, .000000000000], p[.273602410732, .063177092368, -.048894226792, -3.141569622412, -.000043504896, .000005605551]))
+          global CornerItem_2=pose_trans(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(p[-.000000000000, -.000000000000, -.000000000000, .000000000000, .000000000000, .000000000000], p[.391388365600, .061779783196, -.049631754431, 3.141523651447, .009716738797, -.000088414017]))
+          global CornerItem_3=pose_trans(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(p[-.000000000000, -.000000000000, -.000000000000, .000000000000, .000000000000, .000000000000], p[.391315579005, -.000286248982, -.050236211867, -3.141533325189, -.013718740432, -.000117956971]))
+          global CornerItem_4=pose_trans(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(p[-.000000000000, -.000000000000, -.000000000000, .000000000000, .000000000000, .000000000000], p[.273406873204, .000517860327, -.051156452747, -3.141583041500, .001050939626, -.000027211291]))
+          Pallet_1_cnt_x = (Pallet_1_lct - 1) % 3
+          Pallet_1_cnt_y = floor((Pallet_1_lct - 1) / 3)
+          referencePoint = interpolate_pose(interpolate_pose(CornerItem_1, CornerItem_2, Pallet_1_cnt_x/2), interpolate_pose(CornerItem_4, CornerItem_3,Pallet_1_cnt_x/2), Pallet_1_cnt_y/1)
+          if (Pallet_1_cnt_x < 1.5):
+            if (Pallet_1_cnt_y < 1.0):
+              qNearApproach = [0.7129591107413962, -1.5364044842358382, -2.239365339251968, -0.9354143303967515, 1.563656926151399, -0.8629005590953884]
+            else:
+              qNearApproach = [0.5016161799181971, -1.5085515578330657, -2.278494358043421, -0.9241363567214735, 1.563604235667965, -1.0736177603416515]
+            end
+          else:
+            if (Pallet_1_cnt_y < 1.0):
+              qNearApproach = [0.4937380254299555, -2.007725378072582, -1.6458474397723357, -1.0577154916525267, 1.5646317005121302, -1.0871365706076457]
+            else:
+              qNearApproach = [0.34059947729421935, -1.990620275542181, -1.6756259202845056, -1.044891790765739, 1.5646557807885497, -1.2429397741865058]
+            end
+          end
+          direction = p[0,0,1,0,0,0]
+          referencePoint = pose_add (referencePoint,p[0.0*direction[0],0.0*direction[1],0.0*direction[2],0,0,0])
+        end
+        Approach_p = Pallet_1_compute_pallet_waypoint(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(pose_inv(p[0.0,0.0,0.0,0.0,0.0,0.0]), p[0.273602410732008,0.06317709236771941,-0.04889422679210581,-3.1415696224120966,-4.350489606030921E-5,5.605550951761796E-6]), p[9.781301916200746E-7,-4.127783689036879E-6,-0.039642679047630774,5.705013841380003E-6,-6.36803287615918E-6,-1.605432086562052E-5], p[0.0,0.0,0.0,0.0,0.0,0.0], referencePoint)
+        Approach_p = pose_trans(p[0.273602410732008,0.06317709236771941,-0.04889422679210581,-3.141569622383172,-4.35048960599078E-5,5.605550951385046E-6], pose_trans(pose_inv(referencePoint), Approach_p))
+        Approach_q = qNearApproach
+        ToolActionPoint_p = Pallet_1_compute_pallet_waypoint(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(pose_inv(p[0.0,0.0,0.0,0.0,0.0,0.0]), p[0.273602410732008,0.06317709236771941,-0.04889422679210581,-3.1415696224120966,-4.350489606030921E-5,5.605550951761796E-6]), p[0.0,0.0,0.0,0.0,0.0,0.0], p[0.0,0.0,0.0,0.0,0.0,0.0], referencePoint)
+        ToolActionPoint_p = pose_trans(p[0.273602410732008,0.06317709236771941,-0.04889422679210581,-3.141569622383172,-4.35048960599078E-5,5.605550951385046E-6], pose_trans(pose_inv(referencePoint), ToolActionPoint_p))
+        Exit_1_p = Pallet_1_compute_pallet_waypoint(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(pose_inv(p[0.0,0.0,0.0,0.0,0.0,0.0]), p[0.273602410732008,0.06317709236771941,-0.04889422679210581,-3.1415696224120966,-4.350489606030921E-5,5.605550951761796E-6]), p[1.1736166121600888E-5,3.938677995321549E-6,-0.04417940838817465,-1.694999801404622E-5,2.9938762268439606E-5,8.540247071320752E-6], p[0.0,0.0,0.0,0.0,0.0,0.0], referencePoint)
+        Exit_1_p = pose_trans(p[0.273602410732008,0.06317709236771941,-0.04889422679210581,-3.141569622383172,-4.35048960599078E-5,5.605550951385046E-6], pose_trans(pose_inv(referencePoint), Exit_1_p))
+        $ 73 "At Each Item" "noBreak"
+        $ 74 "Generated Movements" "noBreak"
+        $ 75 "MoveJ" "noBreak"
+        $ 76 "Approach" "noBreak"
+        movej(get_inverse_kin(pose_trans(referencePoint, pose_trans(p[-.273604334868, .063168388489, -.048894705327, 3.141569622407, .000043504896, -.000005605551], Approach_p)), qnear=Approach_q), a=1.3962634015954636, v=1.7453292519943295)
+        $ 77 "MoveL" "noBreak"
+        $ 78 "ToolActionPoint" "noBreak"
+        movel(pose_trans(referencePoint, pose_trans(p[-.273604334868, .063168388489, -.048894705327, 3.141569622407, .000043504896, -.000005605551], ToolActionPoint_p)), a=1.2, v=0.25)
+        $ 79 "Tool action" "noBreak"
+        # begin: URCap Program Node
+        #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+        #   Type: Gripper
+        $ 80 "Gripper Open (1)" "noBreak"
+        gripper_slave_ids_11 = [9]
+        popupErrorGripperWord = "Gripper"
+        popupErrorNoConnection1 = "must be connected to run this program."
+        popupErrorNoConnection2 = "No connection"
+        popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+        popupErrorNotActivated2 = "Not activated"
+        rq_gripper_speed = 0.0
+        rq_gripper_force = 1.1764705882352942
+        rq_gripper_position = 0.0
+        rq_is_blocking = True
+        rq_is_robot_compliant = False
+        nb_slave_ids = get_list_length(gripper_slave_ids_11)
+        rq_wait_for_gripper_reconnection()
+        index = 0
+        while (index < nb_slave_ids):
+            if (not rq_is_gripper_connected(gripper_slave_ids_11[index])):
+                write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+            end
+            index = index + 1
+        end
+        index = 0
+        while (index < nb_slave_ids):
+            if (not rq_is_gripper_activated(gripper_slave_ids_11[index])):
+                write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+            end
+            index = index + 1
+        end
+        rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_11)
+        rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_11)
+        if (rq_is_blocking):
+            if rq_is_robot_compliant:
+                zero_ftsensor()
+                sleep(0.02)
+                # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+                force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+            end
+            rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_11)
+            if rq_is_robot_compliant:
+                end_force_mode()
+            end
+        else:
+            rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_11)
+        end
+        # end: URCap Program Node
+        $ 81 "MoveL" "noBreak"
+        $ 82 "Exit_1" "noBreak"
+        movel(pose_trans(referencePoint, pose_trans(p[-.273604334868, .063168388489, -.048894705327, 3.141569622407, .000043504896, -.000005605551], Exit_1_p)), a=1.2, v=0.25)
+        Pallet_1_sep = False
+        if (Pallet_1_cnt >= 6):
+          Pallet_1_cnt = 1
+        else:
+          Pallet_1_cnt = Pallet_1_cnt + 1
+        end
+        $ 83 "MoveJ"
+        $ 84 "Waypoint_2" "breakAfter"
+        movej(get_inverse_kin(Waypoint_2_p, qnear=Waypoint_2_q), a=1.3962634015954636, v=1.0471975511965976)
+        break
+        end
+        sync()
+      end
+    end
+    $ 85 "If pocitadlo≥6 and pocitadlo<12"
+    if (pocitadlo >= 6  and  pocitadlo<12):
+      $ 86 "pocitadlo≔pocitadlo+1"
+      global pocitadlo=pocitadlo+1
+      # begin: URCap Program Node
+      #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+      #   Type: Gripper
+      $ 87 "Gripper Open (1)"
+      gripper_slave_ids_12 = [9]
+      popupErrorGripperWord = "Gripper"
+      popupErrorNoConnection1 = "must be connected to run this program."
+      popupErrorNoConnection2 = "No connection"
+      popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+      popupErrorNotActivated2 = "Not activated"
+      rq_gripper_speed = 90.0
+      rq_gripper_force = 40.0
+      rq_gripper_position = 0.0
+      rq_is_blocking = True
+      rq_is_robot_compliant = False
+      nb_slave_ids = get_list_length(gripper_slave_ids_12)
+      rq_wait_for_gripper_reconnection()
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_connected(gripper_slave_ids_12[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+          end
+          index = index + 1
+      end
+      index = 0
+      while (index < nb_slave_ids):
+          if (not rq_is_gripper_activated(gripper_slave_ids_12[index])):
+              write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+          end
+          index = index + 1
+      end
+      rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_12)
+      rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_12)
+      if (rq_is_blocking):
+          if rq_is_robot_compliant:
+              zero_ftsensor()
+              sleep(0.02)
+              # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+              force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+          end
+          rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_12)
+          if rq_is_robot_compliant:
+              end_force_mode()
+          end
+      else:
+          rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_12)
+      end
+      # end: URCap Program Node
+      $ 88 "Call pas_off"
+      pas_off()
+      $ 89 "Pallet_2"
+      def Pallet_2_trans(pose):
+      return p[pose[0], pose[1], pose[2], 0, 0, 0]
+    end
+    def Pallet_2_rot(pose):
+    return p[0, 0, 0, pose[3], pose[4], pose[5]]
+  end
+  def Pallet_2_compute_pallet_waypoint(T_base_feature_taught, T_feature_referencePoint_taught, T_referencePoint_approach_taught, T_base_feature, T_base_referencePoint):
+  local trans_referencePoint_approach_in_feature_taught = pose_sub(Pallet_2_trans(pose_trans(T_feature_referencePoint_taught, T_referencePoint_approach_taught)), Pallet_2_trans(T_feature_referencePoint_taught))
+  local rot_referencePoint_approach_in_feature_taught = pose_trans(Pallet_2_rot(T_feature_referencePoint_taught), pose_trans(Pallet_2_rot(T_referencePoint_approach_taught), pose_inv(Pallet_2_rot(T_feature_referencePoint_taught))))
+  T_feature_referencePoint = pose_trans(pose_inv(T_base_feature), T_base_referencePoint)
+  rot_referencePoint_approach = pose_trans(pose_inv(Pallet_2_rot(T_feature_referencePoint)), pose_trans(rot_referencePoint_approach_in_feature_taught, Pallet_2_rot(T_feature_referencePoint)))
+  T_feature_approach = pose_trans(trans_referencePoint_approach_in_feature_taught, pose_trans(T_feature_referencePoint, rot_referencePoint_approach))
+  T_base_approach = pose_trans(T_base_feature, T_feature_approach)
+  return T_base_approach
+  end
+  Pallet_2_tct = 6
+  if (Pallet_2_cnt > 6 or Pallet_2_cnt < 1):
+    Pallet_2_cnt = 1
+  end
+  $ 90 "Patterns" "noBreak"
+  $ 91 "Grid_Pattern_2" "noBreak"
+  $ 96 "Layers" "noBreak"
+  if (Pallet_2_cnt < 7):
+    Pallet_2_lno = 1
+    Pallet_2_lct = Pallet_2_cnt
+    global CornerItem_5=pose_trans(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(p[-.000000000000, -.000000000000, -.000000000000, .000000000000, .000000000000, .000000000000], p[.391359894235, .000067811317, -.048850332854, -3.141292271312, .039972388483, -.000204611500]))
+    global CornerItem_6=pose_trans(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(p[-.000000000000, -.000000000000, -.000000000000, .000000000000, .000000000000, .000000000000], p[.273254512740, .003070103916, -.048863438347, -3.141278977508, .039996222294, -.000154916148]))
+    global CornerItem_7=pose_trans(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(p[-.000000000000, -.000000000000, -.000000000000, .000000000000, .000000000000, .000000000000], p[.273732941188, .061971120917, -.048852272615, -3.141473011394, -.018172781300, -.000323442979]))
+    global CornerItem_8=pose_trans(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(p[-.000000000000, -.000000000000, -.000000000000, .000000000000, .000000000000, .000000000000], p[.390596300126, .063303262900, -.048828044808, -3.141525178565, -.018181108588, -.000325186852]))
+    Pallet_2_cnt_x = (Pallet_2_lct - 1) % 3
+    Pallet_2_cnt_y = floor((Pallet_2_lct - 1) / 3)
+    referencePoin_1 = interpolate_pose(interpolate_pose(CornerItem_5, CornerItem_6, Pallet_2_cnt_x/2), interpolate_pose(CornerItem_8, CornerItem_7,Pallet_2_cnt_x/2), Pallet_2_cnt_y/1)
+    if (Pallet_2_cnt_x < 1.5):
+      if (Pallet_2_cnt_y < 1.0):
+        qNearApproach_1 = [0.3415153026537103, -1.9877587757556725, -1.672530412664785, -1.0507899087791222, 1.564619541173246, -1.2078016440097734]
+      else:
+        qNearApproach_1 = [0.4983835518530754, -2.003760000276724, -1.6477898359092045, -1.0594735306844543, 1.5645503997600274, -1.0878713766616768]
+      end
+    else:
+      if (Pallet_2_cnt_y < 1.0):
+        qNearApproach_1 = [0.5112981200165914, -1.5002105844108193, -2.2726390361750397, -0.9382363718804401, 1.5635137558022842, -1.0390408674903462]
+      else:
+        qNearApproach_1 = [0.7090159058594949, -1.535373275439376, -2.2401921749034113, -0.9354302448175194, 1.563552856443386, -0.8783853689753833]
+      end
+    end
+    direction = p[0,0,1,0,0,0]
+    referencePoin_1 = pose_add (referencePoin_1,p[0.0*direction[0],0.0*direction[1],0.0*direction[2],0,0,0])
+  end
+  Approach_1_p = Pallet_2_compute_pallet_waypoint(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(pose_inv(p[0.0,0.0,0.0,0.0,0.0,0.0]), p[0.3913598942346397,6.781131694296155E-5,-0.048850332854417866,-3.1412922713123197,0.03997238848254392,-2.0461150002357002E-4]), p[-1.4007294978912732E-5,6.557534193732915E-5,-0.07241746208477226,-5.3632723834050204E-5,-4.207423448738421E-5,1.4799736647513951E-4], p[0.0,0.0,0.0,0.0,0.0,0.0], referencePoin_1)
+  Approach_1_p = pose_trans(p[0.3913598942346397,6.781131694296155E-5,-0.048850332854417866,-3.1412922713074996,0.03997238848248385,-2.046115002066966E-4], pose_trans(pose_inv(referencePoin_1), Approach_1_p))
+  Approach_1_q = qNearApproach_1
+  ToolActionPoi_1_p = Pallet_2_compute_pallet_waypoint(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(pose_inv(p[0.0,0.0,0.0,0.0,0.0,0.0]), p[0.3913598942346397,6.781131694296155E-5,-0.048850332854417866,-3.1412922713123197,0.03997238848254392,-2.0461150002357002E-4]), p[0.0,1.734723475976807E-18,0.0,-9.695408074338524E-12,-4.321119173198924E-12,-3.105973697944883E-12], p[0.0,0.0,0.0,0.0,0.0,0.0], referencePoin_1)
+  ToolActionPoi_1_p = pose_trans(p[0.3913598942346397,6.781131694296155E-5,-0.048850332854417866,-3.1412922713074996,0.03997238848248385,-2.046115002066966E-4], pose_trans(pose_inv(referencePoin_1), ToolActionPoi_1_p))
+  Exit_2_p = Pallet_2_compute_pallet_waypoint(p[0.0,0.0,0.0,0.0,0.0,0.0], pose_trans(pose_inv(p[0.0,0.0,0.0,0.0,0.0,0.0]), p[0.3913598942346397,6.781131694296155E-5,-0.048850332854417866,-3.1412922713123197,0.03997238848254392,-2.0461150002357002E-4]), p[8.149703889070992E-6,1.8613165154255512E-5,-0.0844259416417815,-2.808730789083906E-5,1.3675585354358025E-5,3.22509044287517E-5], p[0.0,0.0,0.0,0.0,0.0,0.0], referencePoin_1)
+  Exit_2_p = pose_trans(p[0.3913598942346397,6.781131694296155E-5,-0.048850332854417866,-3.1412922713074996,0.03997238848248385,-2.046115002066966E-4], pose_trans(pose_inv(referencePoin_1), Exit_2_p))
+  $ 97 "At Each Item" "noBreak"
+  $ 98 "Generated Movements" "noBreak"
+  $ 99 "MoveJ" "noBreak"
+  $ 100 "Approach_1" "noBreak"
+  movej(get_inverse_kin(pose_trans(referencePoin_1, pose_trans(p[-.391225112894, .010023815441, -.048901539838, 3.141292271307, -.039972388482, .000204611500], Approach_1_p)), qnear=Approach_1_q), a=1.3962634015954636, v=1.0471975511965976)
+  $ 101 "MoveL" "noBreak"
+  $ 102 "ToolActionPoi_1" "noBreak"
+  movel(pose_trans(referencePoin_1, pose_trans(p[-.391225112894, .010023815441, -.048901539838, 3.141292271307, -.039972388482, .000204611500], ToolActionPoi_1_p)), a=1.2, v=0.25)
+  $ 103 "Tool action" "noBreak"
+  # begin: URCap Program Node
+  #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+  #   Type: Gripper
+  $ 104 "Gripper Close (1)" "noBreak"
+  gripper_slave_ids_13 = [9]
+  popupErrorGripperWord = "Gripper"
+  popupErrorNoConnection1 = "must be connected to run this program."
+  popupErrorNoConnection2 = "No connection"
+  popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+  popupErrorNotActivated2 = "Not activated"
+  rq_gripper_speed = 80.0
+  rq_gripper_force = 1.1764705882352942
+  rq_gripper_position = 100.0
+  rq_is_blocking = True
+  rq_is_robot_compliant = False
+  nb_slave_ids = get_list_length(gripper_slave_ids_13)
+  rq_wait_for_gripper_reconnection()
+  index = 0
+  while (index < nb_slave_ids):
+      if (not rq_is_gripper_connected(gripper_slave_ids_13[index])):
+          write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+      end
+      index = index + 1
+  end
+  index = 0
+  while (index < nb_slave_ids):
+      if (not rq_is_gripper_activated(gripper_slave_ids_13[index])):
+          write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+      end
+      index = index + 1
+  end
+  rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_13)
+  rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_13)
+  if (rq_is_blocking):
+      if rq_is_robot_compliant:
+          zero_ftsensor()
+          sleep(0.02)
+          # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+          force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+      end
+      rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_13)
+      if rq_is_robot_compliant:
+          end_force_mode()
+      end
+  else:
+      rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_13)
+  end
+  # end: URCap Program Node
+  $ 105 "MoveL" "noBreak"
+  $ 106 "Exit_2" "noBreak"
+  movel(pose_trans(referencePoin_1, pose_trans(p[-.391225112894, .010023815441, -.048901539838, 3.141292271307, -.039972388482, .000204611500], Exit_2_p)), a=1.2, v=0.25)
+  $ 107 "MoveJ" "noBreak"
+  $ 108 "Waypoint_3" "noBreak"
+  movej(get_inverse_kin(Waypoint_3_p, qnear=Waypoint_3_q), a=2.0943951023931953, v=4.1887902047863905)
+  $ 109 "MoveL" "noBreak"
+  $ 110 "Waypoint_5" "noBreak"
+  movel(Waypoint_5_p, a=1.2, v=0.25)
+  # begin: URCap Program Node
+  #   Source: Robotiq_Grippers, 3.19.1.111718, Robotiq Inc.
+  #   Type: Gripper
+  $ 111 "Gripper Open (1)" "noBreak"
+  gripper_slave_ids_14 = [9]
+  popupErrorGripperWord = "Gripper"
+  popupErrorNoConnection1 = "must be connected to run this program."
+  popupErrorNoConnection2 = "No connection"
+  popupErrorNotActivated1 = "is not activated. Go to Installation tab > Gripper to activate it and run the program again."
+  popupErrorNotActivated2 = "Not activated"
+  rq_gripper_speed = 100.0
+  rq_gripper_force = 100.0
+  rq_gripper_position = 0.0
+  rq_is_blocking = True
+  rq_is_robot_compliant = False
+  nb_slave_ids = get_list_length(gripper_slave_ids_14)
+  rq_wait_for_gripper_reconnection()
+  index = 0
+  while (index < nb_slave_ids):
+      if (not rq_is_gripper_connected(gripper_slave_ids_14[index])):
+          write_error_popup(index, popupErrorGripperWord, popupErrorNoConnection1, popupErrorNoConnection2)
+      end
+      index = index + 1
+  end
+  index = 0
+  while (index < nb_slave_ids):
+      if (not rq_is_gripper_activated(gripper_slave_ids_14[index])):
+          write_error_popup(index, popupErrorGripperWord, popupErrorNotActivated1, popupErrorNotActivated2)
+      end
+      index = index + 1
+  end
+  rq_set_speed_norm_multi_grippers(rq_gripper_speed, gripper_slave_ids_14)
+  rq_set_force_norm_multi_grippers(rq_gripper_force, gripper_slave_ids_14)
+  if (rq_is_blocking):
+      if rq_is_robot_compliant:
+          zero_ftsensor()
+          sleep(0.02)
+          # Maximum allowed deviation values for non-compliant axes are default values generated by UR in a Force node
+          force_mode(tool_pose(), [1, 1, 0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2, [0.15, 0.15, 0.1, 0.3490658503988659, 0.3490658503988659, 0.3490658503988659])
+      end
+      rq_move_and_wait_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_14)
+      if rq_is_robot_compliant:
+          end_force_mode()
+      end
+  else:
+      rq_move_norm_multi_grippers(rq_gripper_position, gripper_slave_ids_14)
+  end
+  # end: URCap Program Node
+  $ 112 "Call pas_on" "noBreak"
+  pas_on()
+  $ 113 "MoveL" "noBreak"
+  $ 114 "Waypoint_3" "noBreak"
+  movel(Waypoint_3_p, a=1.2, v=0.25)
+  $ 115 "Wait: 0.3" "noBreak"
+  sleep(0.3)
+  $ 116 "Call pas_off" "noBreak"
+  pas_off()
+  Pallet_2_sep = False
+  if (Pallet_2_cnt >= 6):
+    Pallet_2_cnt = 1
+  else:
+    Pallet_2_cnt = Pallet_2_cnt + 1
+  end
+  end
+  end
+end
