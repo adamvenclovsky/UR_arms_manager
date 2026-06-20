@@ -1,481 +1,192 @@
 # UR Arms Manager
 
-Lightweight central manager for 2 to 3 Universal Robots arms.
+![CI](https://github.com/BiggHughJass/UR_arms_manager/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![Status](https://img.shields.io/badge/status-alpha-orange)
 
-The backend/CLI core is implemented and manually validated against URSim Docker, including a custom URSim image with SSH support.
+Web and command-line management for a small fleet of Universal Robots arms. The
+project combines Dashboard control, RTDE monitoring, SSH/SFTP file management,
+direct URScript execution, and a filesystem-based program library behind a
+FastAPI/Jinja operator interface.
 
-Current implementation covers:
-- robot registry from YAML
-- robot status via Dashboard
-- dashboard runtime control (`load`, `play`, `stop`)
-- dashboard power control (`power-on`, `brake-release`, `power-off`)
-- robot-side file access over SSH/SFTP (`list`, `exists`, `pull`)
-- local program library (`list`, `add`, `inspect`, `remove`)
-- deploy from local library to robot (`deploy`) and assignment from library (`assign-library`)
-- import a single remote robot file into local library (`import-remote`)
-- read-only `.urp` metadata analysis during `library inspect`
-- lightweight compatibility advisory check (`robot compatibility`)
-- first-class `.script` workflow (`robot run-script`, `robot assign-script`)
-- limited safe `.urp` parameter editing (`library urp-params`, `library urp-set`)
+The development environment runs two isolated URSim controllers in Docker. A
+third, disabled configuration slot can be used for deliberate physical-arm tests.
 
-## Project documentation
+> [!CAUTION]
+> This is alpha software that can send commands to industrial robots. Validate
+> workflows in URSim, keep physical robots disabled by default, and follow the
+> manufacturer's safety procedures.
 
-Active source-of-truth docs:
-- `ur_arms_manager_spec_handoff.md`
-- `uram_final_gui_handoff.txt`
-- `docs/program_bundle_workflow.md`
-- `docs/runtime_validation_bundle_flow.md`
-- `docs/filesystem_first_redesign_plan.md`
-- `docs/runtime_notes_ursim.md`
-- `docs/docs_source_of_truth.md`
+## Highlights
 
-Phase 1 GUI run:
-- `pip install -e .`
-- `uam-gui`
-- open `http://127.0.0.1:8000/`
+- Fleet overview and per-robot operator workspace
+- Dashboard power, brake release, load, play, pause, stop, and move-home actions
+- RTDE status monitoring with Dashboard fallback
+- Local library and remote robot filesystem browsers with rename/move/copy/delete
+- Whole-folder `.urp` bundle deployment with optional assignment and validation
+- Explicit ready-for-play state based on the actual Dashboard response
+- Direct `.script` execution as a separate workflow
+- Read-only `.urp` analysis and conservative parameter editing
+- More than 200 automated tests across services, adapters, CLI, and GUI
 
-Historical phase-planning/legacy docs were intentionally pruned.
-See `docs/docs_source_of_truth.md` for the active guidance set.
+## Architecture
 
-## Install
+```text
+FastAPI/Jinja GUI + CLI
+          |
+   service layer
+    /     |      \
+Dashboard RTDE  SSH/SFTP     direct script socket
+    |      |      |                  |
+         URSim or physical UR controller
+```
 
-```bash
-pip install -e .
+Runtime control, robot filesystem operations, and direct script execution are
+intentionally separate. A successful file upload does not imply successful
+Dashboard load, and a successful load does not imply that PolyScope can play the
+program.
 
-Recommended development setup:
+## Windows quick start
 
-python3 -m venv .venv
-source .venv/bin/activate
+### 1. Install and configure
+
+From PowerShell in the repository root:
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -e .
+python -m pip install -e ".[dev]"
+Copy-Item config\robots.example.yaml config\robots.yaml
+```
+
+`config/robots.yaml` is intentionally ignored by Git so real IP addresses and
+credentials are not published. The example maps `robot1` and `robot2` to the two
+local simulators and leaves the optional physical `robot3` disabled.
+
+### 2. Start URSim
+
+Start Docker Desktop and wait for its Linux engine. On the first run, or after an
+image change:
+
+```powershell
+.\scripts\start-ursim.ps1 -Rebuild
+```
+
+For later runs:
+
+```powershell
+.\scripts\start-ursim.ps1
+```
+
+Ordinary starts reuse existing containers and preserve their robot-side files. The
+`-Rebuild` option force-recreates the containers and may replace container-local
+state, so keep canonical programs in the local Library.
+
+| Robot | PolyScope | Dashboard | Script | RTDE | SSH |
+|---|---|---:|---:|---:|---:|
+| robot1 | <http://127.0.0.1:6080/vnc.html> | 29991 | 30022 | 30024 | 2222 |
+| robot2 | <http://127.0.0.1:6081/vnc.html> | 29992 | 30122 | 30124 | 2223 |
+
+### 3. Start the application
+
+```powershell
+uam-gui
+```
+
+Wait for `Uvicorn running on http://127.0.0.1:8000`, then open
+<http://127.0.0.1:8000/>. Keep that terminal open. `ERR_CONNECTION_REFUSED` means
+the server is not running; WinError 10048 means another process already owns port
+8000.
+
+Health check:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+```
+
+## Demonstration workflows
+
+For a dependency-free demo, add `programs/simulation_demo/ursim_no_gripper_demo.script`
+to the local library and use the direct script workflow. It does not require a
+gripper URCap. Direct scripts sent through the secondary socket should contain one
+top-level `def ... end` program and should not call that function again after `end`.
+
+For a PolyScope bundle:
+
+1. Import a folder containing one `.urp` and its companion files.
+2. Open Transfer, choose the bundle and robot destination.
+3. Deploy with assignment and load validation enabled.
+4. Continue to Robot Workspace and Play only when validation reports ready.
+
+Programs containing Robotiq nodes require the compatible official Robotiq URCap.
+The included TCP mock does not provide PolyScope nodes; `Missing: Gripper` therefore
+prevents Play. See [URSim gripper limitations](docs/ursim_gripper_limitations.md).
+
+## Tests
+
+```powershell
 python -m pytest -q
-Configuration
+```
 
-Copy the example config and adjust hosts/ports:
+GitHub Actions runs the suite on Python 3.10 and 3.12 for every push and pull
+request.
 
-cp config/robots.example.yaml config/robots.yaml
+## Useful CLI commands
 
-assigned_program is stored per robot in config/robots.yaml.
-
-Optional SSH/SFTP fields per robot:
-
-ssh_port (default 22)
-ssh_username (default root)
-ssh_password (default easybot)
-
-Typical local URSim setup for two robots may look like:
-
-robots:
-  robot1:
-    host: 127.0.0.1
-    dashboard_port: 29991
-    script_port: 30022
-    ssh_port: 2222
-    ssh_username: root
-    ssh_password: easybot
-    enabled: true
-    assigned_program: null
-
-  robot2:
-    host: 127.0.0.1
-    dashboard_port: 29992
-    script_port: 30122
-    ssh_port: 2223
-    ssh_username: root
-    ssh_password: easybot
-    enabled: true
-    assigned_program: null
-
-  robot3:
-    host: 127.0.0.1
-    dashboard_port: 29993
-    script_port: 30023
-    ssh_port: 22
-    ssh_username: root
-    ssh_password: easybot
-    enabled: false
-    assigned_program: null
-CLI commands
+```text
 uam robots list
-uam robot status <robot_name>
-
-uam robot assign <robot_name> <local_program_path>
-uam robot assign-remote <robot_name> <robot_program_path>
-uam robot assign-library <robot_name> <program_id>
-uam robot assign-script <robot_name> <program_id>
-
-uam robot run-script <robot_name> <program_id>
-
-uam robot load <robot_name>
-uam robot play <robot_name>
-uam robot stop <robot_name>
-
-uam robot power-on <robot_name>
-uam robot brake-release <robot_name>
-uam robot power-off <robot_name>
-
-uam robot deploy <robot_name> <program_id> [remote_dir]
-
-uam robot files list <robot_name> [remote_dir]
-uam robot files exists <robot_name> <remote_path>
-uam robot files pull <robot_name> <remote_path> <local_destination>
-
-uam robot compatibility <robot_name> <program_id>
-
-uam library list
-uam library add <local_file_path>
-uam library import-remote <robot_name> <remote_path>
-uam library inspect <program_id>
-uam library urp-params <program_id>
-uam library urp-set <program_id> <param_name> <value>
-uam library remove <program_id>
-Runtime workflow distinctions
-
-The project supports three different runtime models. These should not be mixed conceptually.
-
-1. Dashboard .urp workflow
-
-Used for robot-side programs that the controller can load and run.
-
-Relevant commands:
-
-assign-remote
-assign-library
-load
-play
-stop
-2. SSH/SFTP file workflow
-
-Used for robot-side file access.
-
-Relevant commands:
-
-robot files list
-robot files exists
-robot files pull
-robot deploy
-library import-remote
-3. Direct .script workflow
-
-Used for sending a script directly over the script socket.
-
-Relevant commands:
-
-assign-script
-run-script
-Assignment semantics
-assign
-
-assign is local-workstation assignment.
-It validates local file existence and stores the resolved local path string.
-It is primarily useful as a local reference and for future-oriented workflows.
-
-assign-remote
-
-assign-remote stores the robot/URSim controller-visible path exactly as provided.
-No local file validation is performed.
-
-assign-library
-
-assign-library uses a library item and stores a robot-side .urp path for dashboard load workflow.
-
-assign-script
-
-assign-script validates that the library item is a .script and stores:
-
-library://<program_id>
-
-for visibility/organization.
-It does not deploy and does not execute.
-
-Robot status and runtime control
-Status
-
-Use:
-
 uam robot status robot1
-
-Typical output includes:
-
-connected
-robotmode
-program_running
-safety_status
-assigned_program
-Dashboard runtime control
-
-Use:
-
+uam robot power-on robot1
+uam robot brake-release robot1
 uam robot load robot1
 uam robot play robot1
 uam robot stop robot1
 
-Important:
-
-load sends load <assigned_program> to the Dashboard server
-the assigned program must already exist on the robot/URSim controller side
-Robot power control
-
-Use:
-
-uam robot power-on robot1
-uam robot brake-release robot1
-uam robot power-off robot1
-
-These commands use the same dashboard connection as status/load/play/stop.
-
-Observed manual validation:
-
-power-on moved the robot from POWER_OFF to IDLE
-brake-release moved the robot to RUNNING
-power-off returned the robot to POWER_OFF
-Robot-side file access
-
-Commands:
-
-uam robot files list <robot_name> [remote_dir]
-uam robot files exists <robot_name> <remote_path>
-uam robot files pull <robot_name> <remote_path> <local_destination>
-
-Behavior:
-
-list lists remote entries
-exists prints exists: yes or exists: no
-pull downloads a remote file
-if local_destination is an existing directory, the pulled file is saved there using the remote basename
-Local program library
-
-Local storage root:
-
-storage/programs/
-
-For new empty setups, library root starts empty by default:
-- no auto-created `robot1/robot2/robot3` folders
-- no required `uploaded/` folder
-- uploads/imports can target root or any user-created folder
-
-Library is filesystem-first:
-
-- folders/files physically present under `storage/programs/` are the source of truth
-- no manifest file is required for runtime paths
-- UR program bundles are normal folders with `.urp` + optional companion files
-- bundle import preview/commit normalizes unsafe primary `.urp` names by default (source files are not mutated)
-
-Commands:
-
+uam robot files list robot1 /programs
 uam library list
-uam library add <local_file_path>
-uam library inspect <program_id>
-uam library remove <program_id>
+uam library inspect <library-path>
+uam robot compatibility robot1 <library-path>
+```
 
-Metadata includes at least:
+## Program library
 
-program_id
-original_filename
-stored_filename
-stored_path
-extension
-created_at
+The local library is `storage/library/` and is intentionally untracked. Its real
+filesystem is the source of truth. A bundle is a normal folder containing one
+primary `.urp` and optional `.installation`, `.variables`, `.script`, and `.txt`
+companions. Deployment preserves that structure.
 
-Imported robot-side items also include origin metadata.
+Dashboard-visible paths and SSH filesystem paths can differ between URSim and
+PolyScope versions. The application derives the load argument centrally, preserves
+the raw Dashboard response, and exposes the resulting readiness state.
 
-Deploy from library
-Assign from library
-uam robot assign-library <robot_name> <program_id>
+## Home program configuration
 
-Behavior:
+The current Move Home action uses an existing robot-side `.urp` configured per robot:
 
-reads a library item
-sets robot assigned_program to a robot-side .urp path
-does not deploy any file
-Deploy
-uam robot deploy <robot_name> <program_id> [remote_dir]
+```yaml
+home_program: /programs/go_home.urp
+```
 
-Behavior:
+The file must already exist on that robot and may require operator-side Automove
+confirmation. Capturing joint positions and generating a controlled MoveJ home action
+is a proposed future design; it is not implemented yet.
 
-uploads stored library file to robot via SSH/SFTP
-default remote_dir is /programs
-destination remote path is <remote_dir>/<stored_filename>
-deploy does not auto-assign robot program
+## Project status and limitations
 
-Notes:
+- The backend, GUI, simulator workflow, and automated tests are implemented.
+- URSim behavior has been manually exercised with the custom SSH image.
+- In the two-container URSim profile, RTDE monitoring falls back to Dashboard because
+  the installed receive API does not accept the forwarded custom ports.
+- Dashboard response classification is necessarily heuristic across versions.
+- Programs with third-party URCaps require legally obtained compatible bundles.
+- Physical-arm validation remains environment-specific and must be performed with
+  appropriate safety controls.
 
-assign-library and deploy are intentionally separate
-upload behavior assumes the destination directory already exists
-remote overwrite is allowed in the current implementation
-Import remote file to library
-uam library import-remote <robot_name> <remote_path>
+See [Security](SECURITY.md), [Contributing](CONTRIBUTING.md), and the active notes
+under `docs/` for more detail.
 
-Behavior:
+## License
 
-pulls exactly one remote file from robot/URSim
-stores it as a normal library item
-enriches manifest with:
-origin: robot_remote
-source_robot: <robot_name>
-source_remote_path: <remote_path>
-
-Notes:
-
-imports exactly one file
-does not auto-import related .installation or .variables
-does not auto-assign or auto-deploy
-.urp metadata analysis
-
-For .urp library items:
-
-uam library inspect <program_id>
-
-performs best-effort read-only analysis.
-
-Non-.urp inspect behavior remains unchanged.
-
-If parsing fails:
-
-normal manifest fields are still shown
-a non-crashing parse failure indicator is shown
-
-Analysis attempts to extract:
-
-program_name
-installation_name
-polyscope_version
-robot_serial_number
-urcap_names
-digital_inputs
-digital_outputs
-contains_palletizing
-optional palletizing hints:
-pallet_rows
-pallet_columns
-object_height_m
-Compatibility advisory
-uam robot compatibility <robot_name> <program_id>
-
-returns:
-
-overall_status: ok / warning / blocked
-summary
-findings
-
-Implemented lightweight rules include:
-
-missing stored library file -> blocked
-.script -> usually ok
-.urp with parse failure -> at least warning
-.urp with installation_name -> at least warning
-.urp with urcap_names -> at least warning
-unknown extension -> warning
-unreachable robot during check -> warning (non-crashing)
-
-This is advisory only.
-It does not globally block deploy/load.
-
-.script first-class workflow
-Run script directly
-uam robot run-script <robot_name> <program_id>
-
-Behavior:
-
-requires a library item with extension .script
-reads script content from local library storage
-sends script text directly over the robot script socket
-does not use dashboard load/play
-Assign script
-uam robot assign-script <robot_name> <program_id>
-
-Behavior:
-
-validates that the library item is a .script
-stores assigned_program: library://<program_id>
-does not deploy
-does not execute
-Limited safe .urp parameter editing
-Show editable params
-uam library urp-params <program_id>
-
-Behavior:
-
-works only for .urp items
-lists detected editable parameters from a strict whitelist
-prints a clean message if no editable parameters are detected
-Set editable param
-uam library urp-set <program_id> <param_name> <value>
-
-Works only for .urp items.
-
-Current whitelist:
-
-installation_name
-pallet_rows
-pallet_columns
-object_height_m
-
-Safety rules:
-
-no generic XML editor
-unsupported or non-detected parameters are rejected cleanly
-failed updates must not corrupt the stored .urp
-updates use conservative in-place update with atomic replace
-Manual validation notes (custom URSim Docker)
-
-Manual testing in this project was performed against a custom URSim Docker image with openssh-server enabled.
-
-Observed SSH/SFTP file paths looked like:
-
-/ursim/programs.UR5/programs/<file>.urp
-
-Observed Dashboard load behavior in this setup:
-
-working examples used:
-programs/<file>.urp
-sometimes full internal path forms
-plain <file>.urp alone was not reliable
-
-So in this URSim setup, dashboard-visible program paths may differ from raw SSH/SFTP filesystem paths.
-
-Confirmed manually:
-
-dashboard status works
-power-on / brake-release / power-off work
-SSH/SFTP list / exists / pull work
-library import-remote works
-dashboard load works when the correct controller-visible path form is used
-Custom URSim Docker quick notes
-
-Typical local URLs:
-
-robot1 GUI:
-http://127.0.0.1:6080/vnc.html
-robot2 GUI:
-http://127.0.0.1:6081/vnc.html
-
-Typical local ports:
-
-robot1:
-dashboard: 29991
-script: 30022
-ssh: 2222
-robot2:
-dashboard: 29992
-script: 30122
-ssh: 2223
-
-For more setup details, keep project-specific notes in:
-
-docs/runtime_notes_ursim.md
-GUI documentation source-of-truth:
-
-docs/docs_source_of_truth.md
-
-Current status
-
-Backend/CLI core:
-
-implemented
-tested
-manually validated against URSim Docker
-
-Next stage:
-
-operator-friendly GUI on top of the existing backend/services architecture
+No software license has been selected yet. Until a license file is added, the source
+is publicly visible but no reuse rights are granted.

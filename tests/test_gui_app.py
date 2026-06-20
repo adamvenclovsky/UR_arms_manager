@@ -1,5 +1,5 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -13,7 +13,6 @@ from ur_arms_manager.services.runtime_validation import (
     normalize_runtime_safe_filename,
     runtime_name_safety_warning,
 )
-
 
 client = TestClient(app)
 
@@ -124,12 +123,6 @@ class FakeRobotManager:
 
     def stop_program(self) -> str:
         return self._run_action("stop")
-
-    def reload_loaded_program(self) -> str:
-        return self._run_action("reload-loaded")
-
-    def restart_loaded_program(self) -> str:
-        return self._run_action("restart-loaded")
 
     def move_home(self) -> str:
         return self._run_action("move-home")
@@ -762,14 +755,15 @@ def test_health_endpoint_returns_ok() -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_homepage_renders_foundation_placeholders() -> None:
+def test_homepage_describes_primary_workflows() -> None:
     response = client.get("/", follow_redirects=True)
 
     assert response.status_code == 200
     assert "UR Arms Manager" in response.text
-    assert "Phase 1 GUI Foundation" in response.text
-    assert "Fleet Overview" in response.text
-    assert "Jump to workspace" in response.text or "No robots are configured." in response.text
+    assert "Operate a small Universal Robots fleet" in response.text
+    assert "Status and runtime control" in response.text
+    assert "Filesystem-first programs" in response.text
+    assert "Deploy with runtime truth" in response.text
 
 
 def test_transfer_page_renders_bundle_first_sources() -> None:
@@ -1057,7 +1051,7 @@ def test_robots_page_renders_config_error(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert "Robot configuration could not be loaded." in response.text
-    assert "Konfigurační soubor neexistuje" in response.text
+    assert "Configuration file does not exist" in response.text
 
 
 def test_robot_status_endpoint_returns_status_payload(tmp_path: Path) -> None:
@@ -1151,7 +1145,7 @@ def test_robot_status_endpoint_returns_config_error_payload(tmp_path: Path) -> N
     assert response.status_code == 503
     payload = response.json()
     assert payload["ok"] is False
-    assert "Konfigurační soubor neexistuje" in payload["error_message"]
+    assert "Configuration file does not exist" in payload["error_message"]
 
 
 def test_system_page_renders_diagnostics_summary(tmp_path: Path) -> None:
@@ -1230,7 +1224,7 @@ def test_system_page_renders_config_error_state(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert "Configuration problem detected" in response.text
-    assert "Konfigurační soubor neexistuje" in response.text
+    assert "Configuration file does not exist" in response.text
 
 
 def test_robots_page_renders_action_controls(tmp_path: Path) -> None:
@@ -1962,6 +1956,125 @@ robots:
     assert "Move failed: rename blocked" in response.text
 
 
+def test_robot_workspace_rename_updates_remote_path_and_assignment(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: /programs/demo.urp
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/programs"): [
+            {"name": "demo.urp", "is_dir": False, "kind": "file"},
+        ]
+    }
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
+    FakeRobotManager.calls = []
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/files/rename",
+        data={
+            "remote_dir": "/programs",
+            "source_path": "/programs/demo.urp",
+            "new_name": "renamed.urp",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Renamed remote path to: /programs/renamed.urp" in response.text
+    assert "Assigned runtime path was updated" in response.text
+    assert ("move", "/programs/demo.urp->/programs/renamed.urp") in FakeRobotManager.calls
+    assert "/programs/renamed.urp" in config_path.read_text(encoding="utf-8")
+
+
+def test_robot_workspace_folder_rename_updates_nested_assignment(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: /programs/demo/main.urp
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {("robot1", "/programs"): []}
+    FakeRobotManager.remote_dir_errors = {}
+    FakeRobotManager.remote_file_action_errors = {}
+    FakeRobotManager.calls = []
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/files/rename",
+        data={
+            "remote_dir": "/programs",
+            "source_path": "/programs/demo",
+            "new_name": "renamed_demo",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Assigned runtime path was updated" in response.text
+    assert "/programs/renamed_demo/main.urp" in config_path.read_text(encoding="utf-8")
+
+
+def test_robot_workspace_rename_rejects_path_as_name(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.calls = []
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/files/rename",
+        data={
+            "remote_dir": "/programs",
+            "source_path": "/programs/demo.urp",
+            "new_name": "archive/demo.urp",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Rename failed: new name must be a single file or folder name" in response.text
+    assert not FakeRobotManager.calls
+
+
 def test_robot_workspace_copy_redirects_with_success_feedback(tmp_path: Path) -> None:
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(
@@ -2129,7 +2242,7 @@ robots:
     FakeRobotManager.calls = []
     FakeRobotManager.action_results = {}
     FakeRobotManager.action_errors = {
-        ("robot1", "load"): "Load selhal pro robot 'robot1': file not found",
+        ("robot1", "load"): "Load failed for robot 'robot1': file not found",
     }
     FakeRobotManager.statuses = {
         "robot1": RobotStatus(name="robot1", connected=True),
@@ -2868,6 +2981,63 @@ def test_library_move_redirects_with_error_feedback() -> None:
 
     assert response.status_code == 200
     assert "Move failed: move blocked" in response.text
+
+
+def test_library_rename_redirects_with_success_feedback() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+    }
+    FakeLibraryManager.list_errors = {}
+    FakeLibraryManager.inspect_errors = {}
+    FakeLibraryManager.move_errors = {}
+    FakeLibraryManager.copy_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/rename",
+        data={
+            "source_path": "uploaded/demo.script",
+            "new_name": "renamed.script",
+            "current_dir": "uploaded",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Renamed library path to: uploaded/renamed.script" in response.text
+    assert "uploaded/renamed.script" in FakeLibraryManager.entries
+
+
+def test_library_rename_rejects_path_as_name() -> None:
+    FakeLibraryManager.entries = {
+        "uploaded/demo.script": _make_library_file("uploaded/demo.script"),
+    }
+    FakeLibraryManager.move_errors = {}
+    gui_client = TestClient(
+        create_app(
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post(
+        "/library/rename",
+        data={
+            "source_path": "uploaded/demo.script",
+            "new_name": "archive/demo.script",
+            "current_dir": "uploaded",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Rename failed: new name must be a single file or folder name" in response.text
+    assert "uploaded/demo.script" in FakeLibraryManager.entries
 
 
 def test_library_copy_redirects_with_success_feedback() -> None:

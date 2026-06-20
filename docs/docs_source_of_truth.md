@@ -1,30 +1,16 @@
-# Documentation Source of Truth
+# Documentation map
 
-This file defines which documents are active guidance and which historical categories were intentionally removed.
+Use documentation in this order:
 
-## Active source-of-truth docs
+1. `README.md` — project overview, setup, supported workflows, and limitations.
+2. `SECURITY.md` — safety and deployment boundaries.
+3. `docs/filesystem_first_redesign_plan.md` — implemented filesystem architecture.
+4. `docs/program_bundle_workflow.md` — bundle import, inspection, and deployment.
+5. `docs/runtime_validation_bundle_flow.md` — Dashboard load validation and readiness.
+6. `docs/runtime_notes_ursim.md` — local two-container URSim profile.
+7. `docs/ursim_gripper_limitations.md` — Robotiq mock versus URCap behavior.
 
-Use these in priority order:
-
-1. `ur_arms_manager_spec_handoff.md`
-2. `uram_final_gui_handoff.txt`
-3. `docs/program_bundle_workflow.md`
-4. `docs/runtime_validation_bundle_flow.md`
-5. `docs/filesystem_first_redesign_plan.md`
-6. `docs/runtime_notes_ursim.md`
-
-## What was removed
-
-The following categories were removed because they were superseded and causing guidance drift:
-
-- legacy architecture snapshots
-- legacy backend roadmaps
-- old incremental GUI phase/evolution plans
-- outdated mixed-sprint planning docs
-- old codex prompt docs that no longer represent active direction
-
-## Guidance rule for future work
-
-- Treat the two root handoff files as the primary product/UI basis.
-- Treat bundle/runtime/filesystem docs as implementation truth for current model.
-- Do not use removed phase-by-phase legacy docs as active planning input.
+The root handoff documents record the product principles that guided the current
+implementation. They are retained as design history, not as setup instructions or
+phase plans. Where wording differs, `README.md` and the current implementation take
+precedence.

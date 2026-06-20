@@ -2,34 +2,41 @@
 
 {% block content %}
   <section class="hero">
-    <p class="eyebrow">Phase 1 GUI Foundation</p>
-    <h1>Calm shell now, real operator workflows later.</h1>
+    <p class="eyebrow">UR Arms Manager</p>
+    <h1>Operate a small Universal Robots fleet from one local workspace.</h1>
     <p class="lead">
-      This is the minimal runnable GUI for `UR_arms_manager`. It provides the base layout,
-      navigation, health check, and obvious placeholders for future robot and library screens.
+      Monitor robot state, manage local and remote files, deploy complete PolyScope bundles,
+      validate Dashboard load results, and run URScript through explicit operator workflows.
     </p>
   </section>
 
   <section class="card-grid">
     <article class="card">
-      <p class="card-label">Robots</p>
-      <h2>Overview placeholder</h2>
-      <p>Robot inventory, status, and actions are intentionally not implemented in Phase 1.</p>
-      <a class="card-link" href="{{ url_for('robots') }}">Open robots placeholder</a>
+      <p class="card-label">Fleet</p>
+      <h2>Status and runtime control</h2>
+      <p>Review connectivity, safety, assignment, load readiness, and guarded robot actions.</p>
+      <a class="card-link" href="{{ url_for('overview') }}">Open fleet overview</a>
     </article>
 
     <article class="card">
       <p class="card-label">Library</p>
-      <h2>Library placeholder</h2>
-      <p>Program browsing, deploy, import, and assignment flows will be added in later phases.</p>
-      <a class="card-link" href="{{ url_for('library') }}">Open library placeholder</a>
+      <h2>Filesystem-first programs</h2>
+      <p>Browse, rename, organize, inspect, and deploy files or complete UR program bundles.</p>
+      <a class="card-link" href="{{ url_for('library') }}">Open local library</a>
+    </article>
+
+    <article class="card">
+      <p class="card-label">Transfer</p>
+      <h2>Deploy with runtime truth</h2>
+      <p>Send files or bundles, optionally assign the primary URP, and validate Dashboard Load.</p>
+      <a class="card-link" href="{{ url_for('transfer') }}">Open transfer workflow</a>
     </article>
 
     <article class="card">
       <p class="card-label">System</p>
-      <h2>About this shell</h2>
-      <p>The layout is ready for extension without faking live data or unsafe controls.</p>
-      <a class="card-link" href="{{ url_for('system') }}">Open system placeholder</a>
+      <h2>Configuration diagnostics</h2>
+      <p>Inspect robot endpoints, disabled configurations, library health, and dependencies.</p>
+      <a class="card-link" href="{{ url_for('system') }}">Open system diagnostics</a>
     </article>
   </section>
 {% endblock %}

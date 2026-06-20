@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass(slots=True)
@@ -16,8 +15,8 @@ class RobotConfig:
     ssh_username: str = "root"
     ssh_password: str = "easybot"
     enabled: bool = True
-    assigned_program: Optional[str] = None
-    home_program: Optional[str] = None
+    assigned_program: str | None = None
+    home_program: str | None = None
 
 
 @dataclass(slots=True)
@@ -27,7 +26,7 @@ class RobotStatus:
     robotmode: str = "unknown"
     program_running: str = "unknown"
     safety_status: str = "unknown"
-    assigned_program: Optional[str] = None
+    assigned_program: str | None = None
     detail: str = ""
     monitoring_source: str = "dashboard"
 

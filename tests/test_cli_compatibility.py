@@ -4,7 +4,6 @@ from pathlib import Path
 
 from ur_arms_manager import cli
 
-
 EXAMPLE_CONFIG = """
 robots:
   robot1:

@@ -1,4 +1,7 @@
-UR Arms Manager - Final GUI Handoff (Active Basis)
+UR Arms Manager - GUI Design Handoff (Historical)
+
+Current behavior is documented in README.md. This file records the design direction
+used to build the implemented GUI.
 
 Frontend technology direction:
 - FastAPI + Jinja templates

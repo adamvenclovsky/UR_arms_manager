@@ -1,6 +1,7 @@
-# UR Arms Manager Spec Handoff
+# Product design principles (historical handoff)
 
-This file is a top-level source-of-truth product handoff for ongoing implementation.
+This file records the principles used during implementation. For current setup and
+supported behavior, use `README.md` and the documents under `docs/`.
 
 ## Product model (active)
 

@@ -67,6 +67,9 @@ This snapshot is used in robot workspace API/UI context to keep operator messagi
 GUI action API blocks `play` if the latest recorded load validation for that robot is not `success`.
 The response keeps explicit outcome and last load context.
 
+The most recent validation is process-local GUI state and is reset when `uam-gui`
+restarts. Operators should validate again after a restart or assignment change.
+
 ## What is confirmed now
 
 - load path derivation is centralized and test-covered
@@ -76,9 +79,12 @@ The response keeps explicit outcome and last load context.
 - structured load validation is exposed to GUI/API layer
 - readiness notes distinguish assigned vs deployed-only mismatch
 - GUI surfaces warning when runtime filename contains spaces/unsafe characters
+- Dashboard Load uses a dedicated 15-second timeout; routine status commands retain
+  the shorter timeout
 
 ## Environment-specific / still open
 
 - exact dashboard response wording differs across URSim images and PolyScope versions
 - installation/safety/mode detection is currently heuristic based on response text
 - physical-arm validation remains a later step
+- successful Load cannot prove that PolyScope will accept Play or Automove

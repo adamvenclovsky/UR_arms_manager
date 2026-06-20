@@ -144,6 +144,29 @@ def test_library_move_and_copy_item_use_real_paths(tmp_path: Path) -> None:
     assert manager.inspect_item("uploaded/archive/demo.script")["item_kind"] == "file"
 
 
+def test_library_move_refuses_to_replace_existing_destination(tmp_path: Path) -> None:
+    manager = LibraryManager(tmp_path / "storage" / "library")
+    first = tmp_path / "first.script"
+    second = tmp_path / "second.script"
+    first.write_text("def first():\nend\n", encoding="utf-8")
+    second.write_text("def second():\nend\n", encoding="utf-8")
+    manager.add_item(str(first))
+    manager.add_item(str(second))
+
+    try:
+        manager.move_item("first.script", "second.script")
+        assert False, "Expected LibraryError"
+    except LibraryError as exc:
+        assert "destination already exists" in str(exc)
+
+    assert manager.get_stored_file("first.script").read_text(encoding="utf-8").startswith(
+        "def first"
+    )
+    assert manager.get_stored_file("second.script").read_text(encoding="utf-8").startswith(
+        "def second"
+    )
+
+
 def test_library_inspect_directory_by_relative_path(tmp_path: Path) -> None:
     manager = LibraryManager(tmp_path / "storage" / "library")
 

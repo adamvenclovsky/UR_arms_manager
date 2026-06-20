@@ -24,15 +24,15 @@ def test_load_assigned_program_calls_dashboard(monkeypatch) -> None:
             assert port == 29999
 
         def load(self, program_path: str) -> str:
-            assert program_path == "demo.urp"
-            return "Loading program: demo.urp"
+            assert program_path == "programs/demo.urp"
+            return "Loading program: programs/demo.urp"
 
     monkeypatch.setattr(robot_manager, "DashboardClient", FakeDashboardClient)
     manager = robot_manager.RobotManager(_robot())
 
     result = manager.load_assigned_program()
 
-    assert result == "Loading program: demo.urp"
+    assert result == "Loading program: programs/demo.urp"
 
 
 def test_load_assigned_program_rejects_parser_error_response(monkeypatch) -> None:
@@ -60,8 +60,8 @@ def test_validate_assigned_runtime_load_returns_structured_result(monkeypatch) -
             pass
 
         def load(self, program_path: str) -> str:
-            assert program_path == "demo.urp"
-            return "Loading program: demo.urp"
+            assert program_path == "programs/demo.urp"
+            return "Loading program: programs/demo.urp"
 
     monkeypatch.setattr(robot_manager, "DashboardClient", FakeDashboardClient)
     manager = robot_manager.RobotManager(_robot())
@@ -70,7 +70,7 @@ def test_validate_assigned_runtime_load_returns_structured_result(monkeypatch) -
 
     assert result.robot_name == "robot1"
     assert result.assigned_runtime_path == "/programs/demo.urp"
-    assert result.derived_dashboard_load_argument == "demo.urp"
+    assert result.derived_dashboard_load_argument == "programs/demo.urp"
     assert result.outcome == "success"
     assert result.ready_for_play is True
 
@@ -169,7 +169,7 @@ def test_load_assigned_program_requires_assignment(monkeypatch) -> None:
         manager.load_assigned_program()
         assert False, "Expected ValueError"
     except ValueError as exc:
-        assert "nemá přiřazený program" in str(exc)
+        assert "has no assigned program" in str(exc)
 
 
 def test_load_assigned_program_rejects_library_marker(monkeypatch) -> None:
@@ -199,7 +199,7 @@ def test_load_assigned_program_rejects_non_remote_path(monkeypatch) -> None:
         manager.load_assigned_program()
         assert False, "Expected ValueError"
     except ValueError as exc:
-        assert "robot-side cestu" in str(exc)
+        assert "real robot-side path" in str(exc)
 
 
 def test_play_and_stop_wrap_dashboard_failures(monkeypatch) -> None:
@@ -220,13 +220,13 @@ def test_play_and_stop_wrap_dashboard_failures(monkeypatch) -> None:
         manager.play_program()
         assert False, "Expected RuntimeError"
     except RuntimeError as exc:
-        assert "Play selhal" in str(exc)
+        assert "Play failed" in str(exc)
 
     try:
         manager.stop_program()
         assert False, "Expected RuntimeError"
     except RuntimeError as exc:
-        assert "Stop selhal" in str(exc)
+        assert "Stop failed" in str(exc)
 
 
 def test_move_home_loads_and_starts_configured_home_program(monkeypatch) -> None:
@@ -251,73 +251,8 @@ def test_move_home_loads_and_starts_configured_home_program(monkeypatch) -> None
 
     result = manager.move_home()
 
-    assert calls == [("load", "go_home.urp"), ("play", None)]
+    assert calls == [("load", "programs/go_home.urp"), ("play", None)]
     assert "Home program loaded and started" in result
-
-
-def test_reload_loaded_program_tries_quoted_argument_for_spaces(monkeypatch) -> None:
-    calls: list[tuple[str, str | None]] = []
-
-    class FakeDashboardClient:
-        def __init__(self, _host: str, _port: int):
-            pass
-
-        def get_loaded_program(self) -> str:
-            return "Loaded program: /programs/posledni verze 29.4.urp"
-
-        def load(self, program_path: str) -> str:
-            calls.append(("load", program_path))
-            if program_path == "posledni verze 29.4.urp":
-                return "could not understand: load posledni verze 29.4.urp"
-            return f"Loading program: {program_path}"
-
-    monkeypatch.setattr(robot_manager, "DashboardClient", FakeDashboardClient)
-    manager = robot_manager.RobotManager(_robot())
-
-    result = manager.reload_loaded_program()
-
-    assert calls == [
-        ("load", "posledni verze 29.4.urp"),
-        ("load", '"posledni verze 29.4.urp"'),
-    ]
-    assert 'Dashboard load argument: "posledni verze 29.4.urp"' in result
-
-
-def test_restart_loaded_program_reloads_and_plays_current_loaded_program(monkeypatch) -> None:
-    calls: list[tuple[str, str | None]] = []
-
-    class FakeDashboardClient:
-        def __init__(self, _host: str, _port: int):
-            pass
-
-        def stop(self) -> str:
-            calls.append(("stop", None))
-            return "Stopped"
-
-        def get_loaded_program(self) -> str:
-            calls.append(("get_loaded_program", None))
-            return "Loaded program: /programs/demo.urp"
-
-        def load(self, program_path: str) -> str:
-            calls.append(("load", program_path))
-            return f"Loading program: {program_path}"
-
-        def play(self) -> str:
-            calls.append(("play", None))
-            return "Starting program"
-
-    monkeypatch.setattr(robot_manager, "DashboardClient", FakeDashboardClient)
-    manager = robot_manager.RobotManager(_robot(assigned_program=None))
-
-    result = manager.restart_loaded_program()
-
-    assert calls == [
-        ("stop", None),
-        ("get_loaded_program", None),
-        ("load", "demo.urp"),
-        ("play", None),
-    ]
-    assert "Play response: Starting program" in result
 
 
 def test_play_wraps_dashboard_rejection_response(monkeypatch) -> None:
@@ -336,9 +271,43 @@ def test_play_wraps_dashboard_rejection_response(monkeypatch) -> None:
         assert False, "Expected RuntimeError"
     except RuntimeError as exc:
         message = str(exc)
-        assert "Play selhal" in message
+        assert "Play failed" in message
         assert "Dashboard rejected Play" in message
         assert "Failed to execute: play" in message
+
+
+def test_play_rejection_explains_disabled_remote_control(monkeypatch) -> None:
+    class FakeDashboardClient:
+        def __init__(self, _host: str, _port: int):
+            pass
+
+        def play(self) -> str:
+            return "Failed to execute: play"
+
+        def get_robotmode(self) -> str:
+            return "Robotmode: RUNNING"
+
+        def get_safety_status(self) -> str:
+            return "Safetystatus: NORMAL"
+
+        def get_program_state(self) -> str:
+            return "STOPPED final.urp"
+
+        def is_in_remote_control(self) -> str:
+            return "false"
+
+        def get_loaded_program(self) -> str:
+            return "Loaded program: /programs/final.urp"
+
+    monkeypatch.setattr(robot_manager, "DashboardClient", FakeDashboardClient)
+    manager = robot_manager.RobotManager(_robot())
+
+    try:
+        manager.play_program()
+        assert False, "Expected RuntimeError"
+    except RuntimeError as exc:
+        assert "Remote Control is disabled" in str(exc)
+        assert "Automove confirmation" in str(exc)
 
 
 def test_power_commands_call_dashboard(monkeypatch) -> None:
@@ -650,4 +619,4 @@ def test_remote_file_manager_operations_wrap_errors_cleanly(monkeypatch) -> None
         manager.create_remote_folder("/programs/jobs")
         assert False, "Expected RuntimeError"
     except RuntimeError as exc:
-        assert "Vytvoření remote adresáře selhalo" in str(exc)
+        assert "Creating remote directory failed" in str(exc)

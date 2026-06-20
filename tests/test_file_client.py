@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import stat
+from pathlib import Path
 
 from ur_arms_manager.adapters.ur.file_client import FileClient, FileClientError
 
@@ -283,7 +283,7 @@ def test_remove_missing_file_raises_clean_error(monkeypatch) -> None:
         client.remove_file("/programs/missing.urp")
         assert False, "Expected FileClientError"
     except FileClientError as exc:
-        assert "Remote soubor neexistuje" in str(exc)
+        assert "Remote file does not exist" in str(exc)
 
 
 def test_upload_tree_uploads_files_with_relative_paths(tmp_path: Path, monkeypatch) -> None:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from importlib import import_module
 from typing import Any
 
 
@@ -64,7 +63,7 @@ class RTDEClient:
     @staticmethod
     def _load_interface_class() -> type[Any]:
         try:
-            module = import_module("rtde_receive")
+            module = __import__("rtde_receive")
         except ModuleNotFoundError as exc:
             raise RTDEError(
                 "RTDE Python dependency is not installed. Install package 'ur-rtde' to use the RTDE spike."

@@ -1,72 +1,38 @@
-# Program Bundle Workflow (Filesystem-First)
+# Program bundle workflow
 
-This note defines the bundle workflow added in the current sprint.
+A deployable PolyScope program is often more than one `.urp` file. UR Arms Manager
+treats a bundle as a real directory containing one primary `.urp` plus optional
+`.installation`, `.variables`, `.script`, and `.txt` companions.
 
-## Why bundles
+## Detection and readiness
 
-For real UR/PolyScope runtime, a `.urp` file is often not enough by itself.
-Programs commonly depend on related files in the same folder, especially:
-- `.installation`
-- `.variables`
-- optional `.script`
-- optional `.txt`
+- Exactly one `.urp`: deterministic primary runtime candidate.
+- No `.urp`: ordinary folder, not Dashboard-deployable as a bundle.
+- Multiple `.urp` files: ambiguous and blocked from bundle runtime deployment.
+- Missing installation or variables companions produce warnings rather than a false
+  guarantee of incompatibility.
+- Unsafe primary filenames are reported and can be normalized through a
+  non-destructive runtime-safe copy.
 
-Because of that, this project now treats a deployable UR program as a **folder bundle**, not just one file.
+## Import
 
-## Bundle model
+The Library upload supports one file or a staged multi-file bundle. Staging previews
+the chosen folder name, file groups, primary `.urp`, warnings, and any filename
+normalization before committing files to the library. Source files are never changed.
 
-- A bundle is a real directory under local library storage.
-- Filesystem is the source of truth.
-- Bundle metadata is derived by scanning files in that folder.
+## Deploy and assignment
 
-Bundle inspection returns:
-- bundle name and folder path
-- detected primary `.urp` (or none)
-- grouped files by type
-- presence flags for installation/variables/script/text
-- readiness state and warnings
+Transfer uploads the complete directory tree and reports per-file results. The
+deployed primary `.urp` can optionally become the robot's assigned runtime target.
+Assignment is stored as one canonical remote path and remains separate from upload.
 
-Primary `.urp` detection:
-- exactly one `.urp` => primary runtime candidate
-- zero `.urp` => invalid for dashboard runtime
-- multiple `.urp` => ambiguous; warning, no silent guess
+The optional validation step calls Dashboard Load, preserves the raw response, and
+classifies readiness. PolyScope may still reject Play after a successful Load because
+of Remote Control mode, Automove confirmation, safety configuration, installation
+compatibility, or missing URCaps.
 
-## Bundle import
+## File management
 
-- The GUI `/library` upload accepts multiple files.
-- If one file is selected, behavior stays single-file upload.
-- If multiple files are selected, system creates one new bundle folder and copies all selected files into it.
-- Bundle folder name is sanitized and derived from the upload set (prefer single `.urp` stem when available).
-- If primary `.urp` filename contains runtime-unsafe characters (spaces/quotes/semicolons/tabs), preview shows a rename plan and commit stores a runtime-safe copied filename by default.
-- Source files on operator machine are not mutated; normalization applies only to copied files stored in local Library.
-- New libraries start with an empty root; uploads/imports can target root directly (no pre-created `uploaded/` folder is required).
-- Robot-to-library imports no longer require auto-created robot subfolders; imports can land in library root.
-
-## Bundle deploy
-
-- Deploy can now accept a selected library bundle folder.
-- System uploads the whole folder tree to robot storage.
-- Per-file deploy results are returned.
-- The deployed primary `.urp` path is returned as runtime candidate.
-- Optional GUI checkbox allows assigning that deployed primary `.urp` immediately as robot runtime target.
-
-## Runtime/load validation hardening
-
-- Dashboard load response parsing is hardened.
-- Parser/rejection responses (for example `could not understand: 'load ...'`) are treated as failures, not success.
-- Raw dashboard response is preserved in the raised error to keep manual validation trustworthy.
-- Validation is blocked for known runtime-unsafe derived dashboard load arguments (for example names with spaces) and reports explicit `unsafe_runtime_path`.
-
-## Current sprint boundary
-
-Implemented:
-- bundle import
-- bundle inspection summary
-- bundle deploy + primary runtime candidate
-- optional post-deploy assignment
-- truthful dashboard load success/failure handling
-
-Still open for later phases:
-- deeper runtime compatibility solving
-- advanced dashboard path normalization strategies across all URSim variants
-- optional "prepare runtime-safe copy" action for already imported legacy bundles
+Library and robot workspaces support explicit rename and move operations. Renaming a
+robot path that is currently assigned also updates the assignment, including paths
+inside a renamed parent directory.

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from pathlib import PurePosixPath
-import re
 from typing import Literal
-
 
 LoadOutcome = Literal[
     "success",
@@ -74,7 +73,7 @@ def derive_dashboard_load_argument(assigned_runtime_path: str) -> str:
         relative = candidate[len("/programs/") :].strip("/")
         if not relative:
             raise ValueError("Assigned runtime path does not point to a loadable program file.")
-        return relative
+        return f"programs/{relative}"
 
     ursim_roots = ("/ursim/programs.UR5", "/ursim/programs")
     for root in ursim_roots:
@@ -103,7 +102,7 @@ def runtime_name_safety_warning(path_or_argument: str | None) -> str | None:
     unsafe_chars = {" ", "'", '"', ";", "\t", "`"}
     if any(char in part for part in parts for char in unsafe_chars):
         return (
-            "Runtime warning: path contains spaces or unsafe characters. "
+            "Runtime warning: filename contains spaces or unsafe characters. "
             "Dashboard load parser may reject this program path."
         )
     return None

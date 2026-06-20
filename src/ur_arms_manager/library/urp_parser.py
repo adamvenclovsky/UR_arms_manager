@@ -3,8 +3,8 @@ from __future__ import annotations
 import gzip
 import re
 import zipfile
-from tempfile import NamedTemporaryFile
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 from xml.etree import ElementTree as ET
 
@@ -46,7 +46,6 @@ def parse_urp_metadata(file_path: Path) -> dict[str, Any]:
             }
 
     all_text = " ".join(root.itertext())
-    all_text_lower = all_text.lower()
     xml_lower = xml_text.lower()
 
     metadata: dict[str, Any] = {
@@ -212,21 +211,28 @@ def _write_urp_document_atomic(path: Path, format_info: dict[str, str], xml_byte
 
 
 def _write_zip_urp_atomic(path: Path, entry_name: str, xml_bytes: bytes) -> None:
-    with zipfile.ZipFile(path, "r") as source:
-        names = source.namelist()
-        with NamedTemporaryFile(delete=False, dir=path.parent, prefix=f"{path.name}.", suffix=".tmp") as tmp:
-            tmp_path = Path(tmp.name)
-        try:
+    with NamedTemporaryFile(
+        delete=False,
+        dir=path.parent,
+        prefix=f"{path.name}.",
+        suffix=".tmp",
+    ) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        # Windows does not allow os.replace while the source archive still has
+        # an open handle, so finish reading it before replacing the original.
+        with zipfile.ZipFile(path, "r") as source:
+            names = source.namelist()
             with zipfile.ZipFile(tmp_path, "w") as target:
                 for name in names:
                     if name == entry_name:
                         target.writestr(name, xml_bytes)
                     else:
                         target.writestr(name, source.read(name))
-            tmp_path.replace(path)
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
+        tmp_path.replace(path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
 
 
 def _write_bytes_atomic(path: Path, payload: bytes) -> None:

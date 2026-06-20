@@ -74,6 +74,10 @@ class LibraryStorage:
     def move_path(self, source_rel: str, destination_rel: str) -> Path:
         source = self.resolve_path(source_rel)
         destination = self.resolve_path(destination_rel)
+        if not source.exists():
+            raise FileNotFoundError(f"Library path not found: {source}")
+        if destination.exists():
+            raise FileExistsError(f"Library destination already exists: {destination}")
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(source), str(destination))
         return destination

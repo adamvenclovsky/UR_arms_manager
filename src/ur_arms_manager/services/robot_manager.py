@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
-from pathlib import PurePosixPath
 import time
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ur_arms_manager.adapters.ur.dashboard_client import DashboardClient
@@ -42,18 +41,18 @@ class RobotManager:
     def get_assigned_remote_program_path(self) -> str:
         if not self.robot.assigned_program:
             raise ValueError(
-                f"Robot '{self.robot.name}' nemá přiřazený program v konfiguraci."
+                f"Robot '{self.robot.name}' has no assigned program in configuration."
             )
         assigned_program = str(self.robot.assigned_program).strip()
         if assigned_program.startswith("library://"):
             raise ValueError(
-                f"Robot '{self.robot.name}' má přiřazený interní library marker. "
-                "Pro Load nejdřív přiřaď skutečnou robot-side cestu."
+                f"Robot '{self.robot.name}' has an internal library marker assigned. "
+                "Assign a real robot-side path before using Load."
             )
         if not assigned_program.startswith("/"):
             raise ValueError(
-                f"Robot '{self.robot.name}' nemá přiřazenou skutečnou robot-side cestu. "
-                "Pro Load použij absolutní remote path jako /programs/demo.urp."
+                f"Robot '{self.robot.name}' does not have a real robot-side path assigned. "
+                "Use an absolute remote path such as /programs/demo.urp for Load."
             )
         return assigned_program
 
@@ -127,7 +126,7 @@ class RobotManager:
             self._raise_for_dashboard_rejection("Stop", response)
             return response
         except Exception as exc:
-            raise RuntimeError(f"Stop selhal pro robot '{self.robot.name}': {exc}") from exc
+            raise RuntimeError(f"Stop failed for robot '{self.robot.name}': {exc}") from exc
 
     def pause_program(self) -> str:
         try:
@@ -135,49 +134,13 @@ class RobotManager:
             self._raise_for_dashboard_rejection("Pause", response)
             return response
         except Exception as exc:
-            raise RuntimeError(f"Pause selhal pro robot '{self.robot.name}': {exc}") from exc
+            raise RuntimeError(f"Pause failed for robot '{self.robot.name}': {exc}") from exc
 
     def play_program(self) -> str:
         try:
             return self._play_with_retries("Play")
         except Exception as exc:
-            raise RuntimeError(f"Play selhal pro robot '{self.robot.name}': {exc}") from exc
-
-    def reload_loaded_program(self) -> str:
-        try:
-            loaded_response = self.dashboard.get_loaded_program()
-            self._raise_for_dashboard_rejection("Get loaded program", loaded_response)
-            loaded_program = self._parse_loaded_program_path(loaded_response)
-            response, load_argument = self._load_program_with_dashboard_fallbacks(
-                loaded_program,
-                "Reload loaded program",
-            )
-            return (
-                f"{response} Reloaded from currently loaded path: {loaded_program}. "
-                f"Dashboard load argument: {load_argument}"
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                f"Reload loaded programu selhal pro robot '{self.robot.name}': {exc}"
-            ) from exc
-
-    def restart_loaded_program(self) -> str:
-        try:
-            stop_note = ""
-            try:
-                stop_response = self.dashboard.stop()
-                self._raise_for_dashboard_rejection("Restart stop", stop_response)
-                stop_note = f"Stop response: {stop_response}. "
-            except Exception as exc:
-                stop_note = f"Stop was not accepted or was not needed: {exc}. "
-
-            reload_message = self.reload_loaded_program()
-            play_message = self._play_with_retries("Restart play", initial_delay_seconds=1.0)
-            return f"{stop_note}{reload_message}. Play response: {play_message}"
-        except Exception as exc:
-            raise RuntimeError(
-                f"Restart loaded programu selhal pro robot '{self.robot.name}': {exc}"
-            ) from exc
+            raise RuntimeError(f"Play failed for robot '{self.robot.name}': {exc}") from exc
 
     def move_home(self) -> str:
         try:
@@ -199,7 +162,7 @@ class RobotManager:
                 f"Play response: {play_message}. Home path: {home_program}."
             )
         except Exception as exc:
-            raise RuntimeError(f"Move Home selhal pro robot '{self.robot.name}': {exc}") from exc
+            raise RuntimeError(f"Move Home failed for robot '{self.robot.name}': {exc}") from exc
 
     def power_on(self) -> str:
         try:
@@ -208,7 +171,7 @@ class RobotManager:
             return response
         except Exception as exc:
             raise RuntimeError(
-                f"Power-on selhal pro robot '{self.robot.name}': {exc}"
+                f"Power-on failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
     def brake_release(self) -> str:
@@ -218,7 +181,7 @@ class RobotManager:
             return response
         except Exception as exc:
             raise RuntimeError(
-                f"Brake-release selhal pro robot '{self.robot.name}': {exc}"
+                f"Brake-release failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
     def power_off(self) -> str:
@@ -228,7 +191,7 @@ class RobotManager:
             return response
         except Exception as exc:
             raise RuntimeError(
-                f"Power-off selhal pro robot '{self.robot.name}': {exc}"
+                f"Power-off failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
     def list_remote_files(self, remote_dir: str = "/programs") -> list[str]:
@@ -236,7 +199,7 @@ class RobotManager:
             return self._get_file_client().list_dir(remote_dir)
         except Exception as exc:
             raise RuntimeError(
-                f"Výpis remote souborů selhal pro robot '{self.robot.name}': {exc}"
+                f"Listing remote files failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
     def list_remote_entries(self, remote_dir: str = "/programs") -> list[dict[str, Any]]:
@@ -244,7 +207,7 @@ class RobotManager:
             return self._get_file_client().list_dir_entries(remote_dir)
         except Exception as exc:
             raise RuntimeError(
-                f"Výpis remote položek selhal pro robot '{self.robot.name}': {exc}"
+                f"Listing remote entries failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
     def remote_file_exists(self, remote_path: str) -> bool:
@@ -252,7 +215,7 @@ class RobotManager:
             return self._get_file_client().exists(remote_path)
         except Exception as exc:
             raise RuntimeError(
-                f"Ověření remote souboru selhalo pro robot '{self.robot.name}': {exc}"
+                f"Checking remote path failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
     def pull_remote_file(self, remote_path: str, local_destination: str) -> Path:
@@ -265,7 +228,7 @@ class RobotManager:
             return self._get_file_client().pull_file(remote_path, destination)
         except Exception as exc:
             raise RuntimeError(
-                f"Stažení remote souboru selhalo pro robot '{self.robot.name}': {exc}"
+                f"Downloading remote file failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
     def deploy_local_file(self, local_source: Path, remote_destination: str) -> str:
@@ -273,7 +236,7 @@ class RobotManager:
             return self._get_file_client().upload_file(local_source, remote_destination)
         except Exception as exc:
             raise RuntimeError(
-                f"Nahrání souboru na robot '{self.robot.name}' selhalo: {exc}"
+                f"Uploading file to robot '{self.robot.name}' failed: {exc}"
             ) from exc
 
     def deploy_local_bundle(self, local_source_dir: Path, remote_destination_dir: str) -> dict[str, Any]:
@@ -285,7 +248,7 @@ class RobotManager:
             }
         except Exception as exc:
             raise RuntimeError(
-                f"Nahrání bundle adresáře na robot '{self.robot.name}' selhalo: {exc}"
+                f"Uploading bundle to robot '{self.robot.name}' failed: {exc}"
             ) from exc
 
     def create_remote_folder(self, remote_dir: str) -> str:
@@ -293,7 +256,7 @@ class RobotManager:
             return self._get_file_client().create_dir(remote_dir)
         except Exception as exc:
             raise RuntimeError(
-                f"Vytvoření remote adresáře selhalo pro robot '{self.robot.name}': {exc}"
+                f"Creating remote directory failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
     def remove_remote_file(self, remote_path: str) -> str:
@@ -301,7 +264,7 @@ class RobotManager:
             return self._get_file_client().remove_file(remote_path)
         except Exception as exc:
             raise RuntimeError(
-                f"Odstranění remote souboru selhalo pro robot '{self.robot.name}': {exc}"
+                f"Removing remote file failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
     def remove_remote_folder(self, remote_dir: str) -> str:
@@ -309,7 +272,7 @@ class RobotManager:
             return self._get_file_client().remove_dir(remote_dir)
         except Exception as exc:
             raise RuntimeError(
-                f"Odstranění remote adresáře selhalo pro robot '{self.robot.name}': {exc}"
+                f"Removing remote directory failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
     def move_remote_path(self, source_path: str, destination_path: str) -> str:
@@ -317,7 +280,7 @@ class RobotManager:
             return self._get_file_client().rename_path(source_path, destination_path)
         except Exception as exc:
             raise RuntimeError(
-                f"Přesun remote cesty selhal pro robot '{self.robot.name}': {exc}"
+                f"Moving remote path failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
     def copy_remote_file(self, source_path: str, destination_path: str) -> str:
@@ -325,7 +288,7 @@ class RobotManager:
             return self._get_file_client().copy_file(source_path, destination_path)
         except Exception as exc:
             raise RuntimeError(
-                f"Kopírování remote souboru selhalo pro robot '{self.robot.name}': {exc}"
+                f"Copying remote file failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
     def run_script_file(self, local_script_path: Path) -> str:
@@ -334,7 +297,7 @@ class RobotManager:
             script_text = path.read_text(encoding="utf-8")
         except Exception as exc:
             raise RuntimeError(
-                f"Načtení script souboru selhalo pro robot '{self.robot.name}': {exc}"
+                f"Reading script file failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
         try:
@@ -342,7 +305,7 @@ class RobotManager:
             return f"Script sent to robot '{self.robot.name}' from {path}"
         except Exception as exc:
             raise RuntimeError(
-                f"Spuštění scriptu selhalo pro robot '{self.robot.name}': {exc}"
+                f"Running script failed for robot '{self.robot.name}': {exc}"
             ) from exc
 
     def _dashboard_load_path(self, assigned_remote_path: str) -> str:
@@ -400,6 +363,13 @@ class RobotManager:
 
     def _play_rejection_hint(self, context: str) -> str:
         normalized = context.lower()
+        if "remotecontrol=false" in normalized:
+            return (
+                " Possible causes: Remote Control is disabled, or this motion program "
+                "requires operator-side start-position/Automove confirmation. URSim can "
+                "report remoteControl=false even when other Dashboard actions work; use "
+                "PolyScope Run to confirm the start position for MoveJ programs."
+            )
         if (
             "remotecontrol=true" in normalized
             and "safetystatus: normal" in normalized
@@ -443,15 +413,16 @@ class RobotManager:
 
     def _dashboard_context_summary(self) -> str:
         checks = (
-            ("robotmode", self.dashboard.get_robotmode),
-            ("safety", self.dashboard.get_safety_status),
-            ("programState", self.dashboard.get_program_state),
-            ("remoteControl", self.dashboard.is_in_remote_control),
-            ("loaded", self.dashboard.get_loaded_program),
+            ("robotmode", "get_robotmode"),
+            ("safety", "get_safety_status"),
+            ("programState", "get_program_state"),
+            ("remoteControl", "is_in_remote_control"),
+            ("loaded", "get_loaded_program"),
         )
         parts: list[str] = []
-        for label, command in checks:
+        for label, command_name in checks:
             try:
+                command = getattr(self.dashboard, command_name)
                 parts.append(f"{label}={command()}")
             except Exception as exc:
                 parts.append(f"{label}=unavailable({exc})")
@@ -481,16 +452,3 @@ class RobotManager:
         raise RuntimeError(
             f"Dashboard rejected {action_label}.{safety_note} Tried: {' | '.join(failures)}"
         )
-
-    def _parse_loaded_program_path(self, response: str) -> str:
-        text = str(response or "").strip()
-        if not text:
-            raise RuntimeError("Dashboard did not report a loaded program.")
-        normalized = text.lower()
-        empty_markers = ("no program loaded", "none", "<none>")
-        if any(marker in normalized for marker in empty_markers):
-            raise RuntimeError(f"No loaded program to reload: {text}")
-        for prefix in ("Loaded program:", "loaded program:"):
-            if text.startswith(prefix):
-                return text[len(prefix):].strip()
-        return text

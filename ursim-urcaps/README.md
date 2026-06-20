@@ -10,10 +10,8 @@ if you receive `Robotiq_Grippers-<version>.urcap`, copy or rename it here as:
 Robotiq_Grippers-<version>.jar
 ```
 
-Expected for `zaboj_fiala_program`:
-
-```text
-Robotiq_Grippers-3.19.1.111718.jar
-```
+Use the URCap version required by the PolyScope program you intend to run. This
+directory ignores `.jar` and `.urcap` files so third-party bundles are not
+accidentally committed.
 
 After adding or replacing URCaps, recreate the containers and restart PolyScope.

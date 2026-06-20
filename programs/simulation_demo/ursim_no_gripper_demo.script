@@ -1,0 +1,26 @@
+def ursim_no_gripper_demo():
+  textmsg("[UAM demo] Starting simulator-safe program")
+  popup(
+    "Simulator-safe demo started. Watch the PolyScope log for progress.",
+    "UR Arms Manager",
+    False,
+    False,
+    blocking=False
+  )
+
+  local demo_step = 1
+  while demo_step <= 5:
+    textmsg("[UAM demo] Step", demo_step)
+    sleep(1.0)
+    demo_step = demo_step + 1
+  end
+
+  textmsg("[UAM demo] Completed successfully")
+  popup(
+    "Simulator-safe demo completed successfully.",
+    "UR Arms Manager",
+    False,
+    False,
+    blocking=False
+  )
+end

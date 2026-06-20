@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
-from pathlib import Path
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from ur_arms_manager.config import DEFAULT_CONFIG_PATH, LIBRARY_PROGRAMS_DIR, ROOT_DIR
 from ur_arms_manager.registry import RegistryError, RobotRegistry
@@ -11,9 +10,8 @@ from ur_arms_manager.services.compatibility import CompatibilityService
 from ur_arms_manager.services.library_manager import LibraryError, LibraryManager
 from ur_arms_manager.services.robot_manager import RobotManager
 
-
 USAGE = """
-Použití:
+Usage:
   uam robots list
   uam robot status <robot_name>
   uam robot assign <robot_name> <local_program_path>
@@ -97,20 +95,20 @@ def _main(args: list[str]) -> int:
                 absolute_program = (ROOT_DIR / candidate).resolve()
 
             if not absolute_program.exists():
-                raise FileNotFoundError(f"Program neexistuje: {absolute_program}")
+                raise FileNotFoundError(f"Program does not exist: {absolute_program}")
 
             try:
-                stored_path = str(absolute_program.relative_to(ROOT_DIR))
+                stored_path = absolute_program.relative_to(ROOT_DIR).as_posix()
             except ValueError:
                 stored_path = str(absolute_program)
 
             registry.assign_program(robot_name, stored_path)
-            print(f"Robotu '{robot_name}' přiřazen local program: {stored_path}")
+            print(f"Assigned local program to robot '{robot_name}': {stored_path}")
             return 0
 
         case ["robot", "assign-remote", robot_name, robot_program_path]:
             registry.assign_remote_program(robot_name, robot_program_path)
-            print(f"Robotu '{robot_name}' přiřazen remote program: {robot_program_path}")
+            print(f"Assigned remote program to robot '{robot_name}': {robot_program_path}")
             return 0
 
         case ["robot", "assign-library", robot_name, program_id]:
@@ -118,7 +116,7 @@ def _main(args: list[str]) -> int:
             assigned_program = str(PurePosixPath("/programs") / stored_filename)
             registry.assign_remote_program(robot_name, assigned_program)
             print(
-                f"Robotu '{robot_name}' přiřazen program z library '{program_id}': "
+                f"Assigned library program '{program_id}' to robot '{robot_name}': "
                 f"{assigned_program}"
             )
             return 0
@@ -128,7 +126,7 @@ def _main(args: list[str]) -> int:
             assigned_program = f"library://{program_id}"
             registry.assign_program(robot_name, assigned_program)
             print(
-                f"Robotu '{robot_name}' přiřazen script z library '{program_id}': "
+                f"Assigned library script '{program_id}' to robot '{robot_name}': "
                 f"{assigned_program}"
             )
             return 0
@@ -146,8 +144,8 @@ def _main(args: list[str]) -> int:
             print(f"load_response: {response}")
             if "file not found" in response.lower():
                 print(
-                    "note: Dashboard load používá controller-visible program cesty/jména, "
-                    "které se v URSim mohou lišit od SSH/SFTP filesystem cest."
+                    "note: Dashboard Load uses controller-visible program paths, which "
+                    "can differ from SSH/SFTP filesystem paths in URSim."
                 )
             return 0
 
@@ -226,7 +224,7 @@ def _main(args: list[str]) -> int:
         case ["robot", "files", "pull", robot_name, remote_path, local_destination]:
             robot = registry.get_robot(robot_name)
             saved_path = RobotManager(robot).pull_remote_file(remote_path, local_destination)
-            print(f"pulled: {remote_path} -> {saved_path}")
+            print(f"pulled: {remote_path} -> {Path(saved_path).as_posix()}")
             return 0
 
         case ["robot", "compatibility", robot_name, program_id]:

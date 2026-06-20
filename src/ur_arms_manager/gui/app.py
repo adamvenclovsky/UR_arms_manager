@@ -1,26 +1,25 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import importlib.util
-from pathlib import Path, PurePosixPath
 import shutil
 import tempfile
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
+from typing import Any
 from urllib.parse import urlencode
 from uuid import uuid4
 
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse
-from fastapi.responses import HTMLResponse
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ur_arms_manager.config import DEFAULT_CONFIG_PATH, LIBRARY_PROGRAMS_DIR, ROOT_DIR
 from ur_arms_manager.models import RobotConfig, RobotStatus
 from ur_arms_manager.registry import RegistryError, RobotRegistry
-from ur_arms_manager.services.compatibility import CompatibilityResult, CompatibilityService
+from ur_arms_manager.services.compatibility import CompatibilityService
 from ur_arms_manager.services.library_manager import LibraryError, LibraryManager
 from ur_arms_manager.services.robot_manager import RobotManager
 from ur_arms_manager.services.runtime_validation import (
@@ -28,7 +27,6 @@ from ur_arms_manager.services.runtime_validation import (
     derive_dashboard_load_argument,
     runtime_name_safety_warning,
 )
-
 
 GUI_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = GUI_DIR / "templates"
@@ -41,8 +39,6 @@ ACTION_LABELS = {
     "brake-release": "Brake Release",
     "power-off": "Power Off",
     "load": "Load",
-    "reload-loaded": "Reload Loaded",
-    "restart-loaded": "Restart Loaded",
     "move-home": "Move Home",
     "play": "Play",
     "pause": "Pause",
@@ -191,8 +187,6 @@ def _get_action_methods(manager: RobotManager) -> dict[str, Callable[[], str]]:
         "brake-release": manager.brake_release,
         "power-off": manager.power_off,
         "load": manager.load_assigned_program,
-        "reload-loaded": manager.reload_loaded_program,
-        "restart-loaded": manager.restart_loaded_program,
         "move-home": manager.move_home,
         "play": manager.play_program,
         "pause": manager.pause_program,
@@ -381,6 +375,17 @@ def _parent_library_dir(relative_dir: str) -> str | None:
 def _join_library_path(base_dir: str, name: str) -> str:
     base = _normalize_library_dir(base_dir)
     return name if not base else f"{base}/{name}"
+
+
+def _validate_rename_name(value: str) -> str:
+    name = str(value or "").strip()
+    if not name:
+        raise ValueError("new name is required")
+    if name in {".", ".."} or "/" in name or "\\" in name:
+        raise ValueError("new name must be a single file or folder name")
+    if "\x00" in name:
+        raise ValueError("new name contains an invalid character")
+    return name
 
 
 def _build_library_pending_operation(
@@ -893,7 +898,7 @@ def create_app(
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> HTMLResponse:
-        return RedirectResponse(url="/overview", status_code=303)
+        return templates.TemplateResponse(request, "index.html", {"active_page": "home"})
 
     @app.get("/overview", response_class=HTMLResponse)
     def overview(request: Request) -> HTMLResponse:
@@ -1373,6 +1378,62 @@ def create_app(
                 f"Move failed: {exc}",
                 remote_dir,
                 selected_remote_path=source_path,
+            )
+
+    @app.post("/robots/{robot_name}/files/rename")
+    def rename_robot_workspace_path(
+        robot_name: str,
+        request: Request,
+        remote_dir: str = Form(ROBOT_FILES_ROOT),
+        source_path: str = Form(...),
+        new_name: str = Form(...),
+    ) -> RedirectResponse:
+        registry: RobotRegistry = request.app.state.registry
+        manager_factory: Callable[[RobotConfig], RobotManager] = (
+            request.app.state.robot_manager_factory
+        )
+
+        remote_dir = _normalize_remote_dir(remote_dir)
+        source_path = source_path.strip()
+        try:
+            validated_name = _validate_rename_name(new_name)
+            source = PurePosixPath(source_path)
+            if not source_path or not source.name:
+                raise ValueError("source path is required")
+            destination_path = str(source.parent / validated_name)
+            if destination_path == source_path:
+                raise ValueError("new name must be different from the current name")
+
+            robot = registry.get_robot(robot_name)
+            renamed_path = manager_factory(robot).move_remote_path(
+                source_path, destination_path
+            )
+            assigned_program = str(robot.assigned_program or "")
+            assignment_updated = assigned_program == source_path or assigned_program.startswith(
+                f"{source_path.rstrip('/')}/"
+            )
+            if assignment_updated:
+                updated_assignment = (
+                    renamed_path
+                    if assigned_program == source_path
+                    else f"{renamed_path}{assigned_program[len(source_path):]}"
+                )
+                registry.assign_remote_program(robot_name, updated_assignment)
+            suffix = " Assigned runtime path was updated." if assignment_updated else ""
+            return _build_robot_workspace_redirect(
+                robot_name,
+                "success",
+                f"Renamed remote path to: {renamed_path}.{suffix}",
+                _parent_remote_dir(renamed_path) or "/",
+                selected_remote_path=renamed_path,
+            )
+        except Exception as exc:
+            return _build_robot_workspace_redirect(
+                robot_name,
+                "error",
+                f"Rename failed: {exc}",
+                remote_dir,
+                selected_remote_path=source_path or None,
             )
 
     @app.post("/robots/{robot_name}/files/copy")
@@ -2514,6 +2575,62 @@ def create_app(
                 "error",
                 f"Move failed: {exc}",
                 selected=source_path,
+                current_dir=current_dir,
+            )
+
+    @app.post("/library/rename")
+    def rename_library_item(
+        request: Request,
+        source_path: str = Form(...),
+        new_name: str = Form(...),
+        current_dir: str = Form(""),
+    ) -> RedirectResponse:
+        library_manager: LibraryManager = request.app.state.library_manager
+        registry: RobotRegistry = request.app.state.registry
+        current_dir = _normalize_library_dir(current_dir)
+        source_path = source_path.strip().strip("/")
+
+        try:
+            validated_name = _validate_rename_name(new_name)
+            source = Path(source_path)
+            if not source_path or not source.name:
+                raise ValueError("source path is required")
+            parent = source.parent.as_posix()
+            destination_path = _join_library_path(
+                "" if parent == "." else parent, validated_name
+            )
+            if destination_path == source_path:
+                raise ValueError("new name must be different from the current name")
+
+            renamed = library_manager.move_item(source_path, destination_path)
+            renamed_path = renamed.get("library_path", renamed["program_id"])
+            source_marker = f"library://{source_path}"
+            updated_markers = 0
+            for robot in registry.list_robots().values():
+                marker = str(robot.assigned_program or "")
+                if marker == source_marker or marker.startswith(f"{source_marker.rstrip('/')}/"):
+                    updated_marker = (
+                        f"library://{renamed_path}"
+                        f"{marker[len(source_marker):]}"
+                    )
+                    registry.assign_program(robot.name, updated_marker)
+                    updated_markers += 1
+            marker_note = (
+                f" Updated {updated_markers} library assignment(s)."
+                if updated_markers
+                else ""
+            )
+            return _build_library_redirect(
+                "success",
+                f"Renamed library path to: {renamed_path}.{marker_note}",
+                selected=renamed_path,
+                current_dir=_parent_library_dir(renamed_path) or "",
+            )
+        except Exception as exc:
+            return _build_library_redirect(
+                "error",
+                f"Rename failed: {exc}",
+                selected=source_path or None,
                 current_dir=current_dir,
             )
 

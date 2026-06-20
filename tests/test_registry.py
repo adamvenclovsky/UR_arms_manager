@@ -2,7 +2,6 @@ from pathlib import Path
 
 from ur_arms_manager.registry import RobotRegistry
 
-
 EXAMPLE = """
 robots:
   robot1:

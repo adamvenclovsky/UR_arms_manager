@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import socket
-from pathlib import Path
-from pathlib import PurePosixPath
 import stat
+from pathlib import Path, PurePosixPath
 
 import paramiko
 
@@ -44,12 +43,12 @@ class FileClient:
         except paramiko.AuthenticationException as exc:
             ssh.close()
             raise FileClientError(
-                f"SSH autentizace selhala pro {self.username}@{self.host}:{self.port}"
+                f"SSH authentication failed for {self.username}@{self.host}:{self.port}"
             ) from exc
         except (paramiko.SSHException, socket.timeout, OSError) as exc:
             ssh.close()
             raise FileClientError(
-                f"Nelze se připojit na SSH {self.host}:{self.port}: {exc}"
+                f"Cannot connect to SSH at {self.host}:{self.port}: {exc}"
             ) from exc
 
     def list_dir(self, remote_dir: str) -> list[str]:
@@ -69,9 +68,9 @@ class FileClient:
                 )
             return entries
         except FileNotFoundError as exc:
-            raise FileClientError(f"Remote adresář neexistuje: {remote_dir}") from exc
+            raise FileClientError(f"Remote directory does not exist: {remote_dir}") from exc
         except OSError as exc:
-            raise FileClientError(f"Nelze vypsat remote adresář '{remote_dir}': {exc}") from exc
+            raise FileClientError(f"Cannot list remote directory '{remote_dir}': {exc}") from exc
         finally:
             sftp.close()
             ssh.close()
@@ -84,7 +83,7 @@ class FileClient:
         except FileNotFoundError:
             return False
         except OSError as exc:
-            raise FileClientError(f"Nelze ověřit remote cestu '{remote_path}': {exc}") from exc
+            raise FileClientError(f"Cannot check remote path '{remote_path}': {exc}") from exc
         finally:
             sftp.close()
             ssh.close()
@@ -100,10 +99,10 @@ class FileClient:
             sftp.get(remote_path, str(destination))
             return destination
         except FileNotFoundError as exc:
-            raise FileClientError(f"Remote soubor neexistuje: {remote_path}") from exc
+            raise FileClientError(f"Remote file does not exist: {remote_path}") from exc
         except OSError as exc:
             raise FileClientError(
-                f"Stažení remote souboru '{remote_path}' selhalo: {exc}"
+                f"Downloading remote file '{remote_path}' failed: {exc}"
             ) from exc
         finally:
             sftp.close()
@@ -112,7 +111,7 @@ class FileClient:
     def upload_file(self, local_source: Path, remote_destination: str) -> str:
         source = Path(local_source)
         if not source.exists() or not source.is_file():
-            raise FileClientError(f"Lokální soubor neexistuje: {source}")
+            raise FileClientError(f"Local file does not exist: {source}")
 
         ssh, sftp = self._open_sftp()
         try:
@@ -120,11 +119,11 @@ class FileClient:
             return remote_destination
         except FileNotFoundError as exc:
             raise FileClientError(
-                f"Remote cílová cesta neexistuje: {remote_destination}"
+                f"Remote destination does not exist: {remote_destination}"
             ) from exc
         except OSError as exc:
             raise FileClientError(
-                f"Nahrání souboru na remote cestu '{remote_destination}' selhalo: {exc}"
+                f"Uploading file to remote path '{remote_destination}' failed: {exc}"
             ) from exc
         finally:
             sftp.close()
@@ -133,7 +132,7 @@ class FileClient:
     def upload_tree(self, local_source_dir: Path, remote_destination_dir: str) -> list[dict[str, str]]:
         source_dir = Path(local_source_dir)
         if not source_dir.exists() or not source_dir.is_dir():
-            raise FileClientError(f"Lokální adresář neexistuje: {source_dir}")
+            raise FileClientError(f"Local directory does not exist: {source_dir}")
 
         ssh, sftp = self._open_sftp()
         try:
@@ -157,7 +156,7 @@ class FileClient:
             return results
         except OSError as exc:
             raise FileClientError(
-                f"Nahrání adresáře '{source_dir}' na remote cestu '{remote_destination_dir}' selhalo: {exc}"
+                f"Uploading directory '{source_dir}' to '{remote_destination_dir}' failed: {exc}"
             ) from exc
         finally:
             sftp.close()
@@ -169,9 +168,9 @@ class FileClient:
             sftp.mkdir(remote_dir)
             return remote_dir
         except FileNotFoundError as exc:
-            raise FileClientError(f"Nadřazená remote cesta neexistuje: {remote_dir}") from exc
+            raise FileClientError(f"Remote parent directory does not exist: {remote_dir}") from exc
         except OSError as exc:
-            raise FileClientError(f"Vytvoření remote adresáře '{remote_dir}' selhalo: {exc}") from exc
+            raise FileClientError(f"Creating remote directory '{remote_dir}' failed: {exc}") from exc
         finally:
             sftp.close()
             ssh.close()
@@ -182,11 +181,11 @@ class FileClient:
             sftp.remove(remote_path)
             return remote_path
         except FileNotFoundError as exc:
-            raise FileClientError(f"Remote soubor neexistuje: {remote_path}") from exc
+            raise FileClientError(f"Remote file does not exist: {remote_path}") from exc
         except IsADirectoryError as exc:
-            raise FileClientError(f"Remote cesta je adresář, ne soubor: {remote_path}") from exc
+            raise FileClientError(f"Remote path is a directory, not a file: {remote_path}") from exc
         except OSError as exc:
-            raise FileClientError(f"Odstranění remote souboru '{remote_path}' selhalo: {exc}") from exc
+            raise FileClientError(f"Removing remote file '{remote_path}' failed: {exc}") from exc
         finally:
             sftp.close()
             ssh.close()
@@ -196,16 +195,16 @@ class FileClient:
         try:
             remote_dir = self._normalize_remote_dir(remote_dir)
             if remote_dir == "/":
-                raise FileClientError("Nelze odstranit kořenový remote adresář.")
+                raise FileClientError("Cannot remove the remote root directory.")
             self._remove_remote_tree(sftp, remote_dir)
             sftp.rmdir(remote_dir)
             return remote_dir
         except FileClientError:
             raise
         except FileNotFoundError as exc:
-            raise FileClientError(f"Remote adresář neexistuje: {remote_dir}") from exc
+            raise FileClientError(f"Remote directory does not exist: {remote_dir}") from exc
         except OSError as exc:
-            raise FileClientError(f"Odstranění remote adresáře '{remote_dir}' selhalo: {exc}") from exc
+            raise FileClientError(f"Removing remote directory '{remote_dir}' failed: {exc}") from exc
         finally:
             sftp.close()
             ssh.close()
@@ -216,10 +215,10 @@ class FileClient:
             sftp.rename(source_path, destination_path)
             return destination_path
         except FileNotFoundError as exc:
-            raise FileClientError(f"Remote cesta neexistuje: {source_path}") from exc
+            raise FileClientError(f"Remote path does not exist: {source_path}") from exc
         except OSError as exc:
             raise FileClientError(
-                f"Přesun nebo přejmenování remote cesty '{source_path}' selhalo: {exc}"
+                f"Moving or renaming remote path '{source_path}' failed: {exc}"
             ) from exc
         finally:
             sftp.close()
@@ -237,10 +236,10 @@ class FileClient:
                         destination_handle.write(chunk)
             return remote_destination
         except FileNotFoundError as exc:
-            raise FileClientError(f"Remote soubor neexistuje: {remote_source}") from exc
+            raise FileClientError(f"Remote file does not exist: {remote_source}") from exc
         except OSError as exc:
             raise FileClientError(
-                f"Kopírování remote souboru '{remote_source}' selhalo: {exc}"
+                f"Copying remote file '{remote_source}' failed: {exc}"
             ) from exc
         finally:
             sftp.close()

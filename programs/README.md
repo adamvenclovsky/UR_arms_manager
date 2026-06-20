@@ -1,15 +1,13 @@
-# Programy
+# Example URScript programs
 
-Každý robot může mít přiřazený jiný lokální `.script` soubor.
+These small programs are safe repository examples for the direct `.script`
+workflow. They do not depend on a URCap or a physical gripper.
 
-## Pravidlo pro první verzi
+- `robot1/demo_hello.script` displays a popup.
+- `robot2/demo_idle.script` writes a log message.
+- `simulation_demo/ursim_no_gripper_demo.script` runs a five-second, motionless
+  popup/log demonstration with no installation or URCap dependency.
 
-- programy se editují lokálně ve VS Code
-- manager je jen přiřazuje a posílá do konkrétního robota přes socket
-- první verze nepoužívá upload `.urp` projektů do robota
-
-## Doporučení
-
-- jeden adresář na robota
-- malé, čitelné script soubory
-- žádná sdílená globální magie mezi roboty
+Direct script execution is separate from the Dashboard `.urp` workflow: it sends
+URScript to the configured script socket and does not deploy or load a PolyScope
+project.

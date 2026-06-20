@@ -7,7 +7,6 @@ import yaml
 from ur_arms_manager import cli
 from ur_arms_manager.models import RobotStatus
 
-
 EXAMPLE_CONFIG = """
 robots:
   robot1:
@@ -138,7 +137,7 @@ def test_robot_load_file_not_found_prints_dashboard_path_note(
 
     assert exit_code == 0
     assert "load_response: File not found: test1.urp" in output
-    assert "Dashboard load používá controller-visible program cesty/jména" in output
+    assert "Dashboard Load uses controller-visible program paths" in output
 
 
 def test_robot_play_prints_dashboard_response(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -262,7 +261,7 @@ def test_robot_power_on_failure_returns_clean_error(
             pass
 
         def power_on(self) -> str:
-            raise RuntimeError("Power-on selhal pro robot 'robot1': connection refused")
+            raise RuntimeError("Power-on failed for robot 'robot1': connection refused")
 
     monkeypatch.setattr(cli, "RobotManager", FakeRobotManager)
     monkeypatch.setattr(cli.sys, "argv", ["uam", "robot", "power-on", "robot1"])
@@ -271,7 +270,7 @@ def test_robot_power_on_failure_returns_clean_error(
     output = capsys.readouterr().out
 
     assert exit_code == 1
-    assert "[error] Power-on selhal pro robot 'robot1': connection refused" in output
+    assert "[error] Power-on failed for robot 'robot1': connection refused" in output
 
 
 def test_robot_load_without_assigned_program_returns_clean_error(
@@ -286,7 +285,7 @@ def test_robot_load_without_assigned_program_returns_clean_error(
             pass
 
         def load_assigned_program(self) -> str:
-            raise ValueError("Robot 'robot1' nemá přiřazený program v konfiguraci.")
+            raise ValueError("Robot 'robot1' has no assigned program in configuration.")
 
     monkeypatch.setattr(cli, "RobotManager", FakeRobotManager)
     monkeypatch.setattr(cli.sys, "argv", ["uam", "robot", "load", "robot1"])
@@ -295,7 +294,7 @@ def test_robot_load_without_assigned_program_returns_clean_error(
     output = capsys.readouterr().out
 
     assert exit_code == 1
-    assert "[error] Robot 'robot1' nemá přiřazený program v konfiguraci." in output
+    assert "[error] Robot 'robot1' has no assigned program in configuration." in output
 
 
 def test_robot_assign_remote_stores_exact_string_without_local_validation(
@@ -311,7 +310,7 @@ def test_robot_assign_remote_stores_exact_string_without_local_validation(
     saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     assert exit_code == 0
-    assert f"remote program: {remote_path}" in output
+    assert f"Assigned remote program to robot 'robot1': {remote_path}" in output
     assert saved["robots"]["robot1"]["assigned_program"] == remote_path
 
 
@@ -587,7 +586,7 @@ def test_robot_run_script_connection_failure_returns_clean_error(
             pass
 
         def run_script_file(self, _script_file: Path) -> str:
-            raise RuntimeError("Spuštění scriptu selhalo pro robot 'robot1': connection refused")
+            raise RuntimeError("Running script failed for robot 'robot1': connection refused")
 
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
     monkeypatch.setattr(cli, "LIBRARY_PROGRAMS_DIR", tmp_path / "storage" / "library")
@@ -600,4 +599,4 @@ def test_robot_run_script_connection_failure_returns_clean_error(
     output = capsys.readouterr().out
 
     assert exit_code == 1
-    assert "[error] Spuštění scriptu selhalo pro robot 'robot1': connection refused" in output
+    assert "[error] Running script failed for robot 'robot1': connection refused" in output

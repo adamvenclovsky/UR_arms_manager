@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict
 
 import yaml
 
@@ -19,15 +18,15 @@ class RobotRegistry:
     def load(self) -> dict:
         if not self.config_path.exists():
             raise RegistryError(
-                f"Konfigurační soubor neexistuje: {self.config_path}. "
-                "Vytvoř ho z config/robots.example.yaml"
+                f"Configuration file does not exist: {self.config_path}. "
+                "Create it from config/robots.example.yaml."
             )
 
         with self.config_path.open("r", encoding="utf-8") as handle:
             data = yaml.safe_load(handle) or {}
 
         if "robots" not in data:
-            raise RegistryError("V konfiguraci chybí sekce 'robots'.")
+            raise RegistryError("Configuration is missing the 'robots' section.")
         return data
 
     def save(self, data: dict) -> None:
@@ -35,9 +34,9 @@ class RobotRegistry:
         with self.config_path.open("w", encoding="utf-8") as handle:
             yaml.safe_dump(data, handle, sort_keys=False, allow_unicode=True)
 
-    def list_robots(self) -> Dict[str, RobotConfig]:
+    def list_robots(self) -> dict[str, RobotConfig]:
         raw = self.load()["robots"]
-        robots: Dict[str, RobotConfig] = {}
+        robots: dict[str, RobotConfig] = {}
         for name, item in raw.items():
             robots[name] = RobotConfig(
                 name=name,
@@ -57,14 +56,14 @@ class RobotRegistry:
     def get_robot(self, name: str) -> RobotConfig:
         robots = self.list_robots()
         if name not in robots:
-            raise RegistryError(f"Robot '{name}' není v konfiguraci.")
+            raise RegistryError(f"Robot '{name}' is not configured.")
         return robots[name]
 
     def assign_program(self, robot_name: str, program_path: str) -> None:
         data = self.load()
         robots = data["robots"]
         if robot_name not in robots:
-            raise RegistryError(f"Robot '{robot_name}' není v konfiguraci.")
+            raise RegistryError(f"Robot '{robot_name}' is not configured.")
         robots[robot_name]["assigned_program"] = program_path
         self.save(data)
 

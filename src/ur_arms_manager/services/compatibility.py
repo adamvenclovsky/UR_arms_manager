@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from ur_arms_manager.models import RobotConfig
 from ur_arms_manager.services.library_manager import LibraryError, LibraryManager

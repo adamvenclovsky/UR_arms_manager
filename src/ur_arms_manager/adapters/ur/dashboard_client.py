@@ -9,25 +9,35 @@ class DashboardError(Exception):
 
 
 class DashboardClient:
-    def __init__(self, host: str, port: int, timeout: float = 2.0):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        timeout: float = 2.0,
+        load_timeout: float = 15.0,
+    ):
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.load_timeout = load_timeout
 
-    def send_command(self, command: str) -> str:
+    def send_command(self, command: str, timeout: float | None = None) -> str:
+        command_timeout = self.timeout if timeout is None else timeout
         try:
-            with closing(socket.create_connection((self.host, self.port), timeout=self.timeout)) as sock:
-                sock.settimeout(self.timeout)
+            with closing(
+                socket.create_connection((self.host, self.port), timeout=command_timeout)
+            ) as sock:
+                sock.settimeout(command_timeout)
                 _ = self._recv_line(sock)  # welcome line
                 sock.sendall((command.strip() + "\n").encode("ascii"))
                 return self._recv_line(sock)
         except socket.timeout as exc:
             raise DashboardError(
-                f"Timeout při komunikaci s dashboardem {self.host}:{self.port}"
+                f"Dashboard communication timed out for {self.host}:{self.port}"
             ) from exc
         except OSError as exc:
             raise DashboardError(
-                f"Nelze se připojit k dashboardu {self.host}:{self.port}: {exc}"
+                f"Cannot connect to Dashboard at {self.host}:{self.port}: {exc}"
             ) from exc
 
     def get_robotmode(self) -> str:
@@ -67,7 +77,10 @@ class DashboardClient:
         return self.send_command("get loaded program")
 
     def load(self, program_path: str) -> str:
-        return self.send_command(f"load {program_path}")
+        # PolyScope may need several seconds to parse a bundle and activate its
+        # installation. Keep routine status commands responsive while allowing
+        # load enough time to return its actual result.
+        return self.send_command(f"load {program_path}", timeout=self.load_timeout)
 
     def power_on(self) -> str:
         return self.send_command("power on")

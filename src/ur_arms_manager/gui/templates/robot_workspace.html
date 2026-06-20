@@ -143,8 +143,6 @@
           <button type="button" class="action-button" data-action="brake-release" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Brake Release</button>
           <button type="button" class="action-button action-button-danger" data-action="power-off" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Power Off</button>
           <button type="button" class="action-button" data-action="load" {% if not robot_card.can_load or not robot_card.actions_enabled %}disabled title="{{ robot_card.load_disabled_reason or robot_card.actions_disabled_reason }}"{% endif %}>Load</button>
-          <button type="button" class="action-button" data-action="reload-loaded" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Reload Loaded</button>
-          <button type="button" class="action-button" data-action="restart-loaded" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Restart Loaded</button>
           <button type="button" class="action-button" data-action="move-home" {% if not robot_card.can_move_home or not robot_card.actions_enabled %}disabled title="{{ robot_card.home_disabled_reason or robot_card.actions_disabled_reason }}"{% endif %}>Move Home</button>
           <button type="button" class="action-button" data-action="play" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Play</button>
           <button type="button" class="action-button" data-action="pause" {% if not robot_card.actions_enabled %}disabled title="{{ robot_card.actions_disabled_reason }}"{% endif %}>Pause</button>
@@ -400,6 +398,16 @@
                   </div>
                 {% endif %}
               </dl>
+
+              <form method="post" action="{{ url_for('rename_robot_workspace_path', robot_name=robot_card.name) }}" class="stack-form">
+                <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
+                <input type="hidden" name="source_path" value="{{ selected_remote_entry.remote_path }}" />
+                <label class="form-field">
+                  <span>Rename selected remote path</span>
+                  <input type="text" name="new_name" value="{{ selected_remote_entry.name }}" required />
+                </label>
+                <button type="submit" class="action-button action-button-secondary">Rename</button>
+              </form>
 
               <form method="post" action="{{ url_for('remove_robot_workspace_path', robot_name=robot_card.name) }}" class="library-remove-form" onsubmit="return confirm('Delete this remote path?');">
                 <input type="hidden" name="remote_dir" value="{{ file_browser.current_dir }}" />
