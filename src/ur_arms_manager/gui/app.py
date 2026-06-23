@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import shutil
 import tempfile
@@ -700,6 +701,35 @@ def _serialize_robot_file_browser(
     def _entries_for(directory: str) -> list[dict[str, Any]]:
         return manager.list_remote_entries(directory)
 
+    def _detect_remote_bundle_primary_urp(directory: str) -> dict[str, str | bool] | None:
+        try:
+            child_entries = _entries_for(directory)
+        except Exception:
+            return None
+        urp_names = sorted(
+            str(entry.get("name") or "")
+            for entry in child_entries
+            if not bool(entry.get("is_dir")) and str(entry.get("name") or "").lower().endswith(".urp")
+        )
+        if not urp_names:
+            return None
+        directory_name = PurePosixPath(directory).name
+        preferred = f"{directory_name}.urp"
+        if preferred in urp_names:
+            primary_name = preferred
+            ambiguous = len(urp_names) > 1
+        elif len(urp_names) == 1:
+            primary_name = urp_names[0]
+            ambiguous = False
+        else:
+            primary_name = urp_names[0]
+            ambiguous = True
+        return {
+            "primary_name": primary_name,
+            "primary_path": _join_remote_path(directory, primary_name),
+            "ambiguous": ambiguous,
+        }
+
     try:
         raw_entries = _entries_for(current_dir)
     except Exception as exc:
@@ -723,6 +753,11 @@ def _serialize_robot_file_browser(
             name = str(raw_entry.get("name") or "")
             entry_kind = "directory" if bool(raw_entry.get("is_dir")) else "file"
             remote_path = _join_remote_path(current_dir, name)
+            bundle_candidate = (
+                _detect_remote_bundle_primary_urp(remote_path)
+                if entry_kind == "directory"
+                else None
+            )
             entries.append(
                 {
                     "name": name,
@@ -733,6 +768,15 @@ def _serialize_robot_file_browser(
                     "copy_suggestion": _copy_remote_path_suggestion(
                         remote_path,
                         Path(name).suffix.lower().lstrip(".") if entry_kind == "file" else "",
+                    ),
+                    "bundle_primary_urp": (
+                        bundle_candidate["primary_path"] if bundle_candidate else ""
+                    ),
+                    "bundle_primary_name": (
+                        bundle_candidate["primary_name"] if bundle_candidate else ""
+                    ),
+                    "bundle_ambiguous": (
+                        bool(bundle_candidate["ambiguous"]) if bundle_candidate else False
                     ),
                     "type_class": (
                         "type-folder"
@@ -1222,6 +1266,14 @@ def create_app(
                 remote_dir,
                 selected_remote_path=remote_path,
             )
+        if item_extension != "urp":
+            return _build_robot_workspace_redirect(
+                robot_name,
+                "error",
+                "Assign remote path failed: Dashboard Load requires a .urp program file.",
+                remote_dir,
+                selected_remote_path=remote_path,
+            )
 
         try:
             registry.assign_remote_program(robot_name, remote_path)
@@ -1547,6 +1599,18 @@ def create_app(
             robot = registry.get_robot(robot_name)
         except RegistryError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        if not robot.enabled:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "ok": False,
+                    "robot_name": robot_name,
+                    "action_name": action_name,
+                    "action_label": ACTION_LABELS.get(action_name, action_name),
+                    "message": "Robot is disabled in config; no command was sent.",
+                },
+            )
 
         manager = manager_factory(robot)
         actions = _get_action_methods(manager)
@@ -2606,7 +2670,11 @@ def create_app(
             renamed_path = renamed.get("library_path", renamed["program_id"])
             source_marker = f"library://{source_path}"
             updated_markers = 0
-            for robot in registry.list_robots().values():
+            try:
+                configured_robots = registry.list_robots().values()
+            except RegistryError:
+                configured_robots = ()
+            for robot in configured_robots:
                 marker = str(robot.assigned_program or "")
                 if marker == source_marker or marker.startswith(f"{source_marker.rstrip('/')}/"):
                     updated_marker = (
@@ -2988,4 +3056,11 @@ app = create_app()
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="uam-gui",
+        description=(
+            "Start the trusted-local UR Arms Manager operator UI on 127.0.0.1:8000."
+        ),
+    )
+    parser.parse_args()
     uvicorn.run("ur_arms_manager.gui.app:app", host="127.0.0.1", port=8000)

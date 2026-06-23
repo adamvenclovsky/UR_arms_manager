@@ -27,7 +27,7 @@ third, disabled configuration slot can be used for deliberate physical-arm tests
 - Explicit ready-for-play state based on the actual Dashboard response
 - Direct `.script` execution as a separate workflow
 - Read-only `.urp` analysis and conservative parameter editing
-- More than 200 automated tests across services, adapters, CLI, and GUI
+- More than 220 automated tests across services, adapters, CLI, and GUI
 
 ## Architecture
 
@@ -62,7 +62,9 @@ Copy-Item config\robots.example.yaml config\robots.yaml
 
 `config/robots.yaml` is intentionally ignored by Git so real IP addresses and
 credentials are not published. The example maps `robot1` and `robot2` to the two
-local simulators and leaves the optional physical `robot3` disabled.
+local simulators and leaves the optional physical `robot3` disabled. The `easybot`
+password in the example and Docker image is for local URSim only; never reuse it on
+a physical controller.
 
 ### 2. Start URSim
 
@@ -111,6 +113,8 @@ For a dependency-free demo, add `programs/simulation_demo/ursim_no_gripper_demo.
 to the local library and use the direct script workflow. It does not require a
 gripper URCap. Direct scripts sent through the secondary socket should contain one
 top-level `def ... end` program and should not call that function again after `end`.
+Direct script execution bypasses Dashboard load/readiness checks and can command
+motion immediately; treat it as a dangerous, separate operator action.
 
 For a PolyScope bundle:
 
@@ -182,11 +186,18 @@ is a proposed future design; it is not implemented yet.
 - Programs with third-party URCaps require legally obtained compatible bundles.
 - Physical-arm validation remains environment-specific and must be performed with
   appropriate safety controls.
+- The web UI has no authentication or CSRF protection. It is a trusted-local-operator
+  interface bound to `127.0.0.1` by default, not an internet-facing service. Do not
+  publish it through a proxy or bind it to an untrusted network.
+- SFTP operations are restricted to the configured controller program roots. Localhost
+  URSim accepts ephemeral SSH host keys; non-local controllers must have a trusted host
+  key in the operator account's known-hosts store.
+- Automated checks use fakes and do not validate robot cell risk assessment, safety I/O,
+  payload/TCP setup, reachability, protective equipment, or manufacturer procedures.
 
 See [Security](SECURITY.md), [Contributing](CONTRIBUTING.md), and the active notes
 under `docs/` for more detail.
 
 ## License
 
-No software license has been selected yet. Until a license file is added, the source
-is publicly visible but no reuse rights are granted.
+Licensed under the [MIT License](LICENSE).

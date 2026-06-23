@@ -67,6 +67,9 @@ This snapshot is used in robot workspace API/UI context to keep operator messagi
 GUI action API blocks `play` if the latest recorded load validation for that robot is not `success`.
 The response keeps explicit outcome and last load context.
 
+Play remains a single-shot operator action. The service does not retry Play, close
+popups, or unlock a protective stop automatically.
+
 The most recent validation is process-local GUI state and is reset when `uam-gui`
 restarts. Operators should validate again after a restart or assignment change.
 

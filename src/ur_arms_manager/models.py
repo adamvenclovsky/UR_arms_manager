@@ -13,8 +13,8 @@ class RobotConfig:
     rtde_port: int = 30004
     ssh_port: int = 22
     ssh_username: str = "root"
-    ssh_password: str = "easybot"
-    enabled: bool = True
+    ssh_password: str = ""
+    enabled: bool = False
     assigned_program: str | None = None
     home_program: str | None = None
 

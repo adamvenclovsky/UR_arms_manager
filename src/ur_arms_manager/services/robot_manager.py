@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -26,6 +25,7 @@ class RobotManager:
         self._last_load_validation: LoadValidationResult | None = None
 
     def _get_file_client(self) -> FileClient:
+        self._ensure_enabled()
         if self._file_client is None:
             self._file_client = FileClient(
                 host=self.robot.host,
@@ -37,6 +37,12 @@ class RobotManager:
 
     def status(self) -> RobotStatus:
         return get_robot_monitoring_status(self.robot, dashboard_client=self.dashboard)
+
+    def _ensure_enabled(self) -> None:
+        if not self.robot.enabled:
+            raise RuntimeError(
+                f"Robot '{self.robot.name}' is disabled in configuration; no robot command was sent."
+            )
 
     def get_assigned_remote_program_path(self) -> str:
         if not self.robot.assigned_program:
@@ -57,6 +63,7 @@ class RobotManager:
         return assigned_program
 
     def load_assigned_program(self) -> str:
+        self._ensure_enabled()
         assigned_runtime_path = self.get_assigned_remote_program_path()
         result = self.validate_assigned_runtime_load(assigned_runtime_path=assigned_runtime_path)
         if result.outcome != "success":
@@ -72,6 +79,7 @@ class RobotManager:
         self,
         assigned_runtime_path: str | None = None,
     ) -> LoadValidationResult:
+        self._ensure_enabled()
         assigned_runtime_path_value: str | None = assigned_runtime_path
         derived_load_argument: str | None = None
         raw_dashboard_response: str | None = None
@@ -121,6 +129,7 @@ class RobotManager:
         return result
 
     def stop_program(self) -> str:
+        self._ensure_enabled()
         try:
             response = self.dashboard.stop()
             self._raise_for_dashboard_rejection("Stop", response)
@@ -129,6 +138,7 @@ class RobotManager:
             raise RuntimeError(f"Stop failed for robot '{self.robot.name}': {exc}") from exc
 
     def pause_program(self) -> str:
+        self._ensure_enabled()
         try:
             response = self.dashboard.pause()
             self._raise_for_dashboard_rejection("Pause", response)
@@ -137,12 +147,14 @@ class RobotManager:
             raise RuntimeError(f"Pause failed for robot '{self.robot.name}': {exc}") from exc
 
     def play_program(self) -> str:
+        self._ensure_enabled()
         try:
             return self._play_with_retries("Play")
         except Exception as exc:
             raise RuntimeError(f"Play failed for robot '{self.robot.name}': {exc}") from exc
 
     def move_home(self) -> str:
+        self._ensure_enabled()
         try:
             home_program = str(self.robot.home_program or "").strip()
             if not home_program:
@@ -165,6 +177,7 @@ class RobotManager:
             raise RuntimeError(f"Move Home failed for robot '{self.robot.name}': {exc}") from exc
 
     def power_on(self) -> str:
+        self._ensure_enabled()
         try:
             response = self.dashboard.power_on()
             self._raise_for_dashboard_rejection("Power-on", response)
@@ -175,6 +188,7 @@ class RobotManager:
             ) from exc
 
     def brake_release(self) -> str:
+        self._ensure_enabled()
         try:
             response = self.dashboard.brake_release()
             self._raise_for_dashboard_rejection("Brake-release", response)
@@ -185,6 +199,7 @@ class RobotManager:
             ) from exc
 
     def power_off(self) -> str:
+        self._ensure_enabled()
         try:
             response = self.dashboard.power_off()
             self._raise_for_dashboard_rejection("Power-off", response)
@@ -292,6 +307,7 @@ class RobotManager:
             ) from exc
 
     def run_script_file(self, local_script_path: Path) -> str:
+        self._ensure_enabled()
         path = Path(local_script_path)
         try:
             script_text = path.read_text(encoding="utf-8")
@@ -328,6 +344,10 @@ class RobotManager:
             "not allowed",
             "not able",
             "rejected",
+            "cannot",
+            "unable",
+            "error",
+            "no program",
         )
         if any(marker in normalized for marker in rejection_markers):
             context = f" Context: {self._dashboard_context_summary()}" if include_context else ""
@@ -337,29 +357,17 @@ class RobotManager:
     def _play_with_retries(
         self,
         action_label: str,
-        attempts: int = 3,
+        attempts: int = 1,
         initial_delay_seconds: float = 0.0,
         retry_delay_seconds: float = 0.75,
     ) -> str:
-        if initial_delay_seconds > 0:
-            time.sleep(initial_delay_seconds)
-
-        last_response = ""
-        prepare_note = ""
-        for attempt in range(1, attempts + 1):
-            prepare_note = self._prepare_for_remote_play()
-            response = self.dashboard.play()
-            last_response = response
-            try:
-                self._raise_for_dashboard_rejection(action_label, response, include_context=True)
-                retry_note = f" after {attempt} attempt(s)" if attempt > 1 else ""
-                return f"{prepare_note}{response}{retry_note}"
-            except RuntimeError:
-                if attempt >= attempts:
-                    raise
-                time.sleep(retry_delay_seconds)
-
-        raise RuntimeError(f"Dashboard rejected {action_label}: {last_response}")
+        # Motion-start commands are deliberately single-shot. Retrying Play or
+        # automatically clearing safety state can cause motion after the operator's
+        # original context has changed.
+        del attempts, initial_delay_seconds, retry_delay_seconds
+        response = self.dashboard.play()
+        self._raise_for_dashboard_rejection(action_label, response, include_context=True)
+        return response
 
     def _play_rejection_hint(self, context: str) -> str:
         normalized = context.lower()
@@ -383,33 +391,6 @@ class RobotManager:
                 "PolyScope confirmation button."
             )
         return ""
-
-    def _prepare_for_remote_play(self) -> str:
-        notes: list[str] = []
-        for label, command_name in (
-            ("close safety popup", "close_safety_popup"),
-            ("close popup", "close_popup"),
-        ):
-            try:
-                command = getattr(self.dashboard, command_name)
-                response = command()
-                normalized = str(response or "").strip().lower()
-                if normalized and not any(
-                    marker in normalized
-                    for marker in ("could not understand", "failed", "not allowed")
-                ):
-                    notes.append(f"{label}: {response}")
-            except Exception:
-                continue
-
-        try:
-            safety_status = self.dashboard.get_safety_status()
-            if "protective_stop" in safety_status.lower() or "protective stop" in safety_status.lower():
-                notes.append(f"unlock protective stop: {self.dashboard.unlock_protective_stop()}")
-        except Exception:
-            pass
-
-        return f"Prepare: {'; '.join(notes)}. " if notes else ""
 
     def _dashboard_context_summary(self) -> str:
         checks = (
@@ -436,8 +417,8 @@ class RobotManager:
         load_argument = derive_dashboard_load_argument(robot_side_program_path)
         candidates = [load_argument]
         warning = runtime_name_safety_warning(load_argument)
-        if warning and '"' not in load_argument:
-            candidates.append(f'"{load_argument}"')
+        if warning:
+            raise RuntimeError(f"Unsafe runtime path blocked before Dashboard load. {warning}")
 
         failures: list[str] = []
         for candidate in candidates:

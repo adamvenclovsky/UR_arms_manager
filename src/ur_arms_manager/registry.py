@@ -22,11 +22,16 @@ class RobotRegistry:
                 "Create it from config/robots.example.yaml."
             )
 
-        with self.config_path.open("r", encoding="utf-8") as handle:
-            data = yaml.safe_load(handle) or {}
+        try:
+            with self.config_path.open("r", encoding="utf-8") as handle:
+                data = yaml.safe_load(handle) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            raise RegistryError(f"Cannot read robot configuration '{self.config_path}': {exc}") from exc
 
-        if "robots" not in data:
+        if not isinstance(data, dict) or "robots" not in data:
             raise RegistryError("Configuration is missing the 'robots' section.")
+        if not isinstance(data["robots"], dict):
+            raise RegistryError("Configuration 'robots' section must be a mapping.")
         return data
 
     def save(self, data: dict) -> None:
@@ -38,19 +43,33 @@ class RobotRegistry:
         raw = self.load()["robots"]
         robots: dict[str, RobotConfig] = {}
         for name, item in raw.items():
-            robots[name] = RobotConfig(
-                name=name,
-                host=item["host"],
-                dashboard_port=int(item["dashboard_port"]),
-                script_port=int(item["script_port"]),
-                rtde_port=int(item.get("rtde_port", 30004)),
-                ssh_port=int(item.get("ssh_port", 22)),
-                ssh_username=str(item.get("ssh_username", "root")),
-                ssh_password=str(item.get("ssh_password", "easybot")),
-                enabled=bool(item.get("enabled", True)),
-                assigned_program=item.get("assigned_program"),
-                home_program=item.get("home_program"),
-            )
+            if not isinstance(name, str) or not name.strip():
+                raise RegistryError("Robot names must be non-empty strings.")
+            if not isinstance(item, dict):
+                raise RegistryError(f"Robot '{name}' configuration must be a mapping.")
+            try:
+                enabled = item.get("enabled", False)
+                if not isinstance(enabled, bool):
+                    raise RegistryError(f"Robot '{name}' field 'enabled' must be true or false.")
+                robots[name] = RobotConfig(
+                    name=name,
+                    host=str(item["host"]).strip(),
+                    dashboard_port=int(item["dashboard_port"]),
+                    script_port=int(item["script_port"]),
+                    rtde_port=int(item.get("rtde_port", 30004)),
+                    ssh_port=int(item.get("ssh_port", 22)),
+                    ssh_username=str(item.get("ssh_username", "root")),
+                    ssh_password=str(item.get("ssh_password", "")),
+                    enabled=enabled,
+                    assigned_program=item.get("assigned_program"),
+                    home_program=item.get("home_program"),
+                )
+                if not robots[name].host:
+                    raise RegistryError(f"Robot '{name}' field 'host' must not be empty.")
+            except RegistryError:
+                raise
+            except (KeyError, TypeError, ValueError) as exc:
+                raise RegistryError(f"Robot '{name}' has invalid or missing fields: {exc}") from exc
         return robots
 
     def get_robot(self, name: str) -> RobotConfig:

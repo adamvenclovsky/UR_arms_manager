@@ -28,6 +28,11 @@ robots:
 """
 
 
+def test_help_returns_success_without_loading_config(capsys) -> None:
+    assert cli._main(["--help"]) == 0
+    assert "Usage:" in capsys.readouterr().out
+
+
 def test_robots_list_prints_expected_fields(tmp_path: Path, monkeypatch, capsys) -> None:
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(EXAMPLE_CONFIG, encoding="utf-8")

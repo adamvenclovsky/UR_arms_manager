@@ -17,6 +17,83 @@ def _robot(assigned_program: str | None = "/programs/demo.urp") -> RobotConfig:
     )
 
 
+def test_disabled_robot_blocks_every_command_channel(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    class FakeDashboardClient:
+        def __init__(self, _host: str, _port: int):
+            pass
+
+        def __getattr__(self, name: str):
+            def called(*_args, **_kwargs):
+                calls.append(name)
+                return "unexpected"
+
+            return called
+
+    class FakeScriptClient:
+        def __init__(self, _host: str, _port: int):
+            pass
+
+        def send_program(self, _text: str) -> None:
+            calls.append("script")
+
+    monkeypatch.setattr(robot_manager, "DashboardClient", FakeDashboardClient)
+    monkeypatch.setattr(robot_manager, "ScriptClient", FakeScriptClient)
+    robot = _robot()
+    robot.enabled = False
+    manager = robot_manager.RobotManager(robot)
+    script = tmp_path / "demo.script"
+    script.write_text("def demo():\nend\n", encoding="utf-8")
+
+    commands = (
+        manager.power_on,
+        manager.brake_release,
+        manager.power_off,
+        manager.load_assigned_program,
+        manager.play_program,
+        manager.pause_program,
+        manager.stop_program,
+        manager.move_home,
+        lambda: manager.list_remote_files("/programs"),
+        lambda: manager.run_script_file(script),
+    )
+    for command in commands:
+        try:
+            command()
+            assert False, "Expected disabled robot command to be blocked"
+        except RuntimeError as exc:
+            assert "disabled in configuration" in str(exc)
+
+    assert calls == []
+
+
+def test_play_is_single_shot_and_does_not_clear_safety_state(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class FakeDashboardClient:
+        def __init__(self, _host: str, _port: int):
+            pass
+
+        def play(self) -> str:
+            calls.append("play")
+            return "Failed to execute: play"
+
+        def unlock_protective_stop(self) -> str:
+            calls.append("unlock")
+            return "unlocked"
+
+    monkeypatch.setattr(robot_manager, "DashboardClient", FakeDashboardClient)
+
+    try:
+        robot_manager.RobotManager(_robot()).play_program()
+        assert False, "Expected rejected Play"
+    except RuntimeError:
+        pass
+
+    assert calls == ["play"]
+
+
 def test_load_assigned_program_calls_dashboard(monkeypatch) -> None:
     class FakeDashboardClient:
         def __init__(self, host: str, port: int):
@@ -310,27 +387,6 @@ def test_play_rejection_explains_disabled_remote_control(monkeypatch) -> None:
         assert "Automove confirmation" in str(exc)
 
 
-def test_play_wraps_dashboard_rejection_response(monkeypatch) -> None:
-    class FakeDashboardClient:
-        def __init__(self, _host: str, _port: int):
-            pass
-
-        def play(self) -> str:
-            return "Failed to execute: play"
-
-    monkeypatch.setattr(robot_manager, "DashboardClient", FakeDashboardClient)
-    manager = robot_manager.RobotManager(_robot())
-
-    try:
-        manager.play_program()
-        assert False, "Expected RuntimeError"
-    except RuntimeError as exc:
-        message = str(exc)
-        assert "Play selhal" in message
-        assert "Dashboard rejected Play" in message
-        assert "Failed to execute: play" in message
-
-
 def test_power_commands_call_dashboard(monkeypatch) -> None:
     class FakeDashboardClient:
         def __init__(self, _host: str, _port: int):
@@ -389,7 +445,7 @@ def test_list_remote_files_uses_default_programs_dir(monkeypatch) -> None:
             assert kwargs["host"] == "127.0.0.1"
             assert kwargs["port"] == 22
             assert kwargs["username"] == "root"
-            assert kwargs["password"] == "easybot"
+            assert kwargs["password"] == ""
 
         def list_dir(self, remote_dir: str) -> list[str]:
             assert remote_dir == "/programs"

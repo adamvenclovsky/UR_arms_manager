@@ -55,7 +55,7 @@ def main() -> int:
 
 
 def _main(args: list[str]) -> int:
-    if not args:
+    if not args or args in (["-h"], ["--help"]):
         print(USAGE)
         return 0
 

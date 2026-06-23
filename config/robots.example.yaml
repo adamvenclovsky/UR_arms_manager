@@ -6,6 +6,7 @@ robots:
     rtde_port: 30024
     ssh_port: 2222
     ssh_username: root
+    # URSim image credential only. Never reuse this password on a physical robot.
     ssh_password: easybot
     enabled: true
     assigned_program: null
@@ -18,6 +19,7 @@ robots:
     rtde_port: 30124
     ssh_port: 2223
     ssh_username: root
+    # URSim image credential only. Never reuse this password on a physical robot.
     ssh_password: easybot
     enabled: true
     assigned_program: null
@@ -27,13 +29,15 @@ robots:
 
   robot3:
     # Optional physical arm. Replace placeholders and enable deliberately.
-    host: 192.168.0.100
+    # RFC 5737 documentation address; replace locally and never commit the real IP.
+    host: 192.0.2.10
     dashboard_port: 29999
     script_port: 30002
     rtde_port: 30004
     ssh_port: 22
     ssh_username: root
     ssh_password: ""
+    # Keep false until URSim validation and physical safety review are complete.
     enabled: false
     assigned_program: null
     home_program: null

@@ -55,14 +55,19 @@ def derive_dashboard_load_argument(assigned_runtime_path: str) -> str:
     raw_value = str(assigned_runtime_path or "").strip()
     if not raw_value:
         raise ValueError("Assigned runtime path is empty.")
+    if any(ord(char) < 32 or ord(char) == 127 for char in raw_value):
+        raise ValueError("Assigned runtime path contains control characters and is not load-safe.")
+    if "\\" in raw_value:
+        raise ValueError("Assigned runtime path must use POSIX '/' separators.")
 
-    candidate = str(PurePosixPath(raw_value))
+    parsed = PurePosixPath(raw_value)
+    if ".." in parsed.parts:
+        raise ValueError("Assigned runtime path contains traversal segments and is not load-safe.")
+    candidate = str(parsed)
     if not candidate.startswith("/"):
         relative = candidate.strip()
         if not relative or relative in {".", "/"}:
             raise ValueError("Assigned runtime path does not point to a loadable program file.")
-        if ".." in PurePosixPath(relative).parts:
-            raise ValueError("Assigned runtime path contains traversal segments and is not load-safe.")
         return relative
 
     if candidate == "/programs":
@@ -99,8 +104,13 @@ def runtime_name_safety_warning(path_or_argument: str | None) -> str | None:
     if not candidate:
         return None
     parts = PurePosixPath(candidate).parts
-    unsafe_chars = {" ", "'", '"', ";", "\t", "`"}
-    if any(char in part for part in parts for char in unsafe_chars):
+    unsafe_chars = {" ", "'", '"', ";", "`"}
+    if any(
+        char in part
+        for part in parts
+        for char in part
+        if char in unsafe_chars or ord(char) < 32 or ord(char) == 127
+    ):
         return (
             "Runtime warning: filename contains spaces or unsafe characters. "
             "Dashboard load parser may reject this program path."

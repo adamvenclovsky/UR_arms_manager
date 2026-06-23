@@ -17,6 +17,9 @@ class LibraryStorage:
 
     def resolve_path(self, relative_path: str | Path = "") -> Path:
         self.ensure()
+        raw_path = str(relative_path)
+        if any(ord(char) < 32 or ord(char) == 127 for char in raw_path):
+            raise ValueError("Library path contains control characters.")
         candidate = self.programs_root / Path(relative_path)
         resolved = candidate.resolve()
         root_resolved = self.programs_root.resolve()
@@ -52,6 +55,10 @@ class LibraryStorage:
         destination_dir = self.resolve_path(target_dir)
         destination_dir.mkdir(parents=True, exist_ok=True)
         target_name = preferred_name or source.name
+        if Path(target_name).name != target_name or any(
+            ord(char) < 32 or ord(char) == 127 for char in target_name
+        ):
+            raise ValueError(f"Unsafe library filename: {target_name!r}")
         destination = self._unique_path(destination_dir, target_name)
         shutil.copy2(source, destination)
         return destination

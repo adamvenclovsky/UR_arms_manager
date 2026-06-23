@@ -1581,6 +1581,91 @@ robots:
     assert "Remote Runtime Path" in response.text
 
 
+def test_robot_workspace_detects_remote_bundle_directory_and_offers_assignment(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/programs"): [
+            {"name": "final_school_project", "is_dir": True, "kind": "directory"},
+        ],
+        ("robot1", "/programs/final_school_project"): [
+            {"name": "final_school_project.urp", "is_dir": False, "kind": "file"},
+            {"name": "final_school_project.installation", "is_dir": False, "kind": "file"},
+            {"name": "final_school_project.variables", "is_dir": False, "kind": "file"},
+        ],
+    }
+    FakeRobotManager.remote_dir_errors = {}
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.get(
+        "/robots/robot1?remote_dir=/programs&selected_remote_path=/programs/final_school_project"
+    )
+
+    assert response.status_code == 200
+    assert "Detected Program Bundle" in response.text
+    assert "/programs/final_school_project/final_school_project.urp" in response.text
+    assert "Assign Detected Bundle Program for Load" in response.text
+
+
+def test_robot_workspace_assign_detected_remote_bundle_primary(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    FakeRobotManager.remote_entries = {
+        ("robot1", "/programs/final_school_project"): [
+            {"name": "final_school_project.urp", "is_dir": False, "kind": "file"},
+        ],
+    }
+    FakeRobotManager.remote_dir_errors = {}
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/assign-remote-file",
+        data={
+            "remote_dir": "/programs",
+            "remote_path": "/programs/final_school_project/final_school_project.urp",
+            "item_kind": "file",
+            "item_extension": "urp",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert (
+        "Assigned runtime path for robot &#39;robot1&#39;: "
+        "/programs/final_school_project/final_school_project.urp"
+    ) in response.text
+
+
 def test_robot_workspace_assign_remote_file_rejects_directory(tmp_path: Path) -> None:
     config_path = tmp_path / "robots.yaml"
     config_path.write_text(
@@ -1614,6 +1699,41 @@ robots:
 
     assert response.status_code == 200
     assert "Assign remote path failed: folders cannot be used for Load." in response.text
+
+
+def test_robot_workspace_assign_remote_file_rejects_non_urp_file(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 127.0.0.1
+    dashboard_port: 29991
+    script_port: 30021
+    ssh_port: 2222
+    enabled: true
+    assigned_program: null
+""".strip(),
+        encoding="utf-8",
+    )
+    FakeRobotManager.statuses = {"robot1": RobotStatus(name="robot1", connected=True)}
+    gui_client = TestClient(
+        create_app(config_path=config_path, robot_manager_factory=FakeRobotManager)
+    )
+
+    response = gui_client.post(
+        "/robots/robot1/assign-remote-file",
+        data={
+            "remote_dir": "/programs",
+            "remote_path": "/programs/default.installation",
+            "item_kind": "file",
+            "item_extension": "installation",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Dashboard Load requires a .urp program file" in response.text
 
 
 def test_robot_workspace_assign_remote_file_rejects_script_file(tmp_path: Path) -> None:
@@ -2186,6 +2306,35 @@ robots:
 
     assert response.status_code == 200
     assert "Robot is disabled in config. Enable it before sending commands." in response.text
+
+
+def test_disabled_robot_action_api_never_calls_manager(tmp_path: Path) -> None:
+    config_path = tmp_path / "robots.yaml"
+    config_path.write_text(
+        """
+robots:
+  robot1:
+    host: 192.0.2.10
+    dashboard_port: 29999
+    script_port: 30002
+    enabled: false
+""",
+        encoding="utf-8",
+    )
+    FakeRobotManager.calls = []
+    gui_client = TestClient(
+        create_app(
+            config_path=config_path,
+            library_manager_factory=FakeLibraryManager,
+            robot_manager_factory=FakeRobotManager,
+        )
+    )
+
+    response = gui_client.post("/api/robots/robot1/actions/power-on")
+
+    assert response.status_code == 403
+    assert "disabled" in response.json()["message"].lower()
+    assert FakeRobotManager.calls == []
 
 
 def test_robot_action_endpoint_returns_success_payload(tmp_path: Path) -> None:

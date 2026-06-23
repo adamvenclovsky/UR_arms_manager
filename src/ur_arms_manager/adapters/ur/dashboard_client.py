@@ -22,6 +22,9 @@ class DashboardClient:
         self.load_timeout = load_timeout
 
     def send_command(self, command: str, timeout: float | None = None) -> str:
+        command = str(command)
+        if not command.strip() or any(char in command for char in ("\r", "\n")):
+            raise DashboardError("Dashboard command must be one non-empty line.")
         command_timeout = self.timeout if timeout is None else timeout
         try:
             with closing(
@@ -29,7 +32,11 @@ class DashboardClient:
             ) as sock:
                 sock.settimeout(command_timeout)
                 _ = self._recv_line(sock)  # welcome line
-                sock.sendall((command.strip() + "\n").encode("ascii"))
+                try:
+                    payload = (command.strip() + "\n").encode("ascii")
+                except UnicodeEncodeError as exc:
+                    raise DashboardError("Dashboard command contains non-ASCII characters.") from exc
+                sock.sendall(payload)
                 return self._recv_line(sock)
         except socket.timeout as exc:
             raise DashboardError(
@@ -99,4 +106,6 @@ class DashboardClient:
             if not chunk:
                 break
             data += chunk
+            if len(data) > 65536:
+                raise DashboardError("Dashboard response exceeded 64 KiB.")
         return data.decode("utf-8", errors="replace").strip()

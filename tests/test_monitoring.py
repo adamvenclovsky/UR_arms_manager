@@ -10,6 +10,7 @@ def _robot() -> RobotConfig:
         host="127.0.0.1",
         dashboard_port=29999,
         script_port=30001,
+        enabled=True,
         assigned_program="/programs/demo.urp",
     )
 

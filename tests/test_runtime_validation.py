@@ -35,6 +35,15 @@ def test_derive_dashboard_load_argument_rejects_unknown_absolute_root() -> None:
         assert "Unsupported runtime path strategy" in str(exc)
 
 
+def test_derive_dashboard_load_argument_rejects_traversal_and_control_characters() -> None:
+    for unsafe in ("/programs/jobs/../escape.urp", "/programs/demo.urp\nplay"):
+        try:
+            derive_dashboard_load_argument(unsafe)
+            assert False, f"Expected unsafe path rejection: {unsafe!r}"
+        except ValueError as exc:
+            assert "not load-safe" in str(exc)
+
+
 def test_derive_dashboard_load_argument_keeps_relative_paths() -> None:
     assert derive_dashboard_load_argument("bundle/main.urp") == "bundle/main.urp"
 

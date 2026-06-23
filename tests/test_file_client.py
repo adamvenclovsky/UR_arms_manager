@@ -6,6 +6,30 @@ from pathlib import Path
 from ur_arms_manager.adapters.ur.file_client import FileClient, FileClientError
 
 
+def test_remote_paths_cannot_escape_program_roots(monkeypatch) -> None:
+    client = FileClient(host="127.0.0.1", username="root", password="easybot")
+    monkeypatch.setattr(client, "_open_sftp", lambda: (_ for _ in ()).throw(AssertionError()))
+
+    for unsafe in ("/etc/passwd", "/programs/../etc/passwd", "/programs/demo\n.urp"):
+        try:
+            client.remove_file(unsafe)
+            assert False, f"Expected remote path rejection: {unsafe!r}"
+        except FileClientError:
+            pass
+
+
+def test_remote_program_roots_cannot_be_removed(monkeypatch) -> None:
+    client = FileClient(host="127.0.0.1", username="root", password="easybot")
+    monkeypatch.setattr(client, "_open_sftp", lambda: (_ for _ in ()).throw(AssertionError()))
+
+    for root in ("/programs", "/ursim/programs", "/ursim/programs.UR5"):
+        try:
+            client.remove_dir(root)
+            assert False, f"Expected root removal rejection: {root}"
+        except FileClientError as exc:
+            assert "root" in str(exc).lower()
+
+
 def test_pull_file_into_existing_directory_returns_full_saved_path(
     tmp_path: Path, monkeypatch
 ) -> None:
